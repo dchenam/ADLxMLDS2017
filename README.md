@@ -9,3 +9,4 @@
 - tensorflow-gpu
 
 I was unable to implement CNN + RNN
+My written Chinese isn't very good, so the report was a bit difficult for me to write.
