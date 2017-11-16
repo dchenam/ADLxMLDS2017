@@ -21,7 +21,7 @@ def get_feat(data_dir='MLDS_hw2_data/', type='train'):
     # normalized_feat = (feat_vec - mean) / std
 
     normalized_feat = feat_vec
-    return feat_vec, idx
+    return normalized_feat, idx
 
 def get_label(data_dir='MLDS_hw2_data/', type='train'):
     import os
@@ -38,7 +38,7 @@ def get_label(data_dir='MLDS_hw2_data/', type='train'):
 def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', vocab_size=3000):
     import numpy as np
     import pickle
-    from keras.preprocessing.text import Tokenizer, one_hot
+    from keras.preprocessing.text import Tokenizer
     from keras.preprocessing.sequence import pad_sequences
 
     if type == 'train':
@@ -57,8 +57,8 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
         with open('idx_to_word.pickle', 'wb') as handle:
             pickle.dump(idx_to_word, handle)
 
-        padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
-        np.save('y_' + type + '.npy', padded_captions)
+        #padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
+        np.save('y_' + type + '.npy', tokenized_captions)
         np.save('idx_' + type + '.npy', idx)
         np.save('x_' + type + '.npy', normalized_feat)
 
@@ -66,8 +66,8 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
             normalized_feat, idx = get_feat(data_dir, 'test')
             sorted_label = get_label(data_dir, 'test')
             tokenized_captions = [tokenizer.texts_to_sequences(label['caption']) for label in sorted_label]
-            padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
-            np.save('y_test.npy', padded_captions)
+            #padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
+            np.save('y_test.npy', tokenized_captions)
             np.save('idx_test.npy', idx)
             np.save('x_test.npy', normalized_feat)
 
