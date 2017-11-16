@@ -1,5 +1,4 @@
-def seq2seq_model(max_length=3000, padded_length=44):
-    hidden_units = 256
+def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     encoder_input = Input(shape=(80, 4096))
     masked_encoder_input = Masking()(encoder_input)
     encoder = LSTM(hidden_units, return_state=True)
@@ -34,30 +33,43 @@ def seq2seq_model(max_length=3000, padded_length=44):
 
     return model, encoder_model, decoder_model
 
-def train(model, data):
+def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=200):
+
     seq2seq_model, encoder_model, decoder_model = model
     x_train, y_train, x_test, y_test = data
 
     seq2seq_model.compile(optimizer="Adam", loss='categorical_crossentropy', metrics=['accuracy'])
-    padded_length = 44
-    max_length = 3000
-    batch_size = 32
-    epochs = 200
 
     def data_generator(features, labels, batch_size):
         batch_encoder_input = np.zeros((batch_size, features.shape[1], features.shape[2]))
         batch_decoder_input = np.zeros((batch_size, padded_length, max_length))
         batch_decoder_output = np.zeros((batch_size, padded_length, max_length))
+        x_train_size = len(features)
+        sample_index = 0
+        caption_index = 0
         while True:
             for i in range(batch_size):
-                # choose random index in features
-                index = np.random.randint(len(features))
-                frame_index = np.random.randint(labels[index].shape[0])
-                batch_encoder_input[i] = features[index]
-                sequence = labels[index][frame_index]
+                batch_encoder_input[i] = features[sample_index]
+
+                sequence = labels[sample_index][caption_index]
                 shifted_sequence = np.insert(sequence[:-1], 0, 2)
-                batch_decoder_input[i] = to_categorical(shifted_sequence, 3000)
-                batch_decoder_output[i] = to_categorical(sequence, 3000)
+                seq_list = [sequence, shifted_sequence]
+
+                padded_list = pad_sequences(seq_list, padding='post', maxlen=padded_length)
+                padded_sequence, padded_shift = padded_list
+                batch_decoder_input[i] = to_categorical(padded_shift, max_length)
+                batch_decoder_output[i] = to_categorical(padded_sequence, max_length)
+
+                caption_index += 1
+
+                if caption_index > len(labels[sample_index]) - 1:
+                    sample_index += 1
+                    caption_index = 0
+
+                if sample_index > x_train_size - 1:
+                    sample_index = 0
+                    caption_index = 0
+
             yield [batch_encoder_input, batch_decoder_input], batch_decoder_output
 
     import time
@@ -92,12 +104,12 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
     # (to simplify, here we assume a batch of size 1).
     stop_condition = False
     decoded_sentence = ''
-    i = 0
+
     while not stop_condition:
         output_tokens, h, c = decoder_model.predict(
             [target_seq] + states_value)
         # Sample a token
-        sampled_token_index = np.argmax(output_tokens[0, i, :])
+        sampled_token_index = np.argmax(output_tokens[0, -1, :])
         sampled_char = idxtoword[sampled_token_index]
 
         if sampled_char == 'eos':
@@ -111,11 +123,10 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
         if (sampled_char == 'eos' or len(decoded_sentence) > padded_length):
             stop_condition = True
 
-        i += 1
         print(sampled_token_index)
         # Update the target sequence (of length 1).
-        #target_seq = np.zeros((1, padded_length, max_length))
-        target_seq[0, i, sampled_token_index] = 1.
+        target_seq = np.zeros((1, padded_length, max_length))
+        target_seq[0, 0, sampled_token_index] = 1.
 
         # Update states
         states_value = [h, c]
@@ -149,6 +160,7 @@ if __name__ == "__main__":
     from keras.models import Model
     from keras.layers import Input, LSTM, Dense, Masking
     from keras.utils import to_categorical
+    from keras.preprocessing.sequence import pad_sequences
 
     import argparse
     parser = argparse.ArgumentParser()
@@ -160,27 +172,25 @@ if __name__ == "__main__":
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-
-    # Define Model
     seq2seq_model, encoder_model, decoder_model = seq2seq_model()
 
     seq2seq_model.summary()
-    encoder_model.summary()
-    decoder_model.summary()
 
     model = [seq2seq_model, encoder_model, decoder_model]
     if args.mode == 'test':
         import pandas as pd
+
         model = load_model('models/seq2seq.h5')
         encoder_model = load_model('models/encoder.h5')
         decoder_model = load_model('models/decoder.h5')
-        result = test(encoder_model, decoder_model)
-        output = pd.DataFrame.from_dict(result, orient='index').to_csv(args.output_dir, header=None)
+
+        predicted = test(encoder_model, decoder_model)
+        output = pd.DataFrame.from_dict(predicted, orient='index').to_csv(args.output_dir, header=None)
     else:
         x_train = np.load('x_train.npy')
         y_train = np.load('y_train.npy')
         x_test = np.load('x_test.npy')
         y_test = np.load('y_test.npy')
-
         data = [x_train, y_train, x_test, y_test]
+
         train(model, data)
