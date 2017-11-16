@@ -70,9 +70,9 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
             np.save('y_test.npy', tokenized_captions)
             np.save('idx_test.npy', idx)
             np.save('x_test.npy', normalized_feat)
-
-    np.save('idx_' + type + '.npy', idx)
-    np.save('x_' + type + '.npy', normalized_feat)
+    else:
+        np.save('idx_' + type + '.npy', idx)
+        np.save('x_' + type + '.npy', normalized_feat)
 
 
 if __name__ == "__main__":
