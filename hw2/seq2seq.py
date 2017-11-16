@@ -1,16 +1,16 @@
-
 def seq2seq_model(max_length=3000, padded_length=44):
-
     hidden_units = 256
     encoder_input = Input(shape=(80, 4096))
+    masked_encoder_input = Masking()(encoder_input)
     encoder = LSTM(hidden_units, return_state=True)
-    encoder_output, state_h, state_c = encoder(encoder_input)
+    encoder_output, state_h, state_c = encoder(masked_encoder_input)
 
     encoder_states = [state_h, state_c]
 
     decoder_input = Input(shape=(padded_length, max_length))
+    masked_decoder_input = Masking()(decoder_input)
     decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True)
-    decoder_output, _, _ = decoder_lstm(decoder_input, initial_state=encoder_states)
+    decoder_output, _, _ = decoder_lstm(masked_decoder_input, initial_state=encoder_states)
     decoder_dense = Dense(max_length, activation='softmax')
     decoder_output = decoder_dense(decoder_output)
 
@@ -24,7 +24,7 @@ def seq2seq_model(max_length=3000, padded_length=44):
     decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
 
     decoder_output, state_h, state_c = decoder_lstm(
-        decoder_input, initial_state=decoder_states_inputs)
+        masked_decoder_input, initial_state=decoder_states_inputs)
     decoder_states = [state_h, state_c]
 
     decoder_output = decoder_dense(decoder_output)
@@ -34,9 +34,11 @@ def seq2seq_model(max_length=3000, padded_length=44):
 
     return model, encoder_model, decoder_model
 
-def train(model, x_train, y_train):
+def train(model, data):
+    seq2seq_model, encoder_model, decoder_model = model
+    x_train, y_train, x_test, y_test = data
 
-    model.compile(optimizer="Adam", loss='categorical_crossentropy', metrics=['accuracy'])
+    seq2seq_model.compile(optimizer="Adam", loss='categorical_crossentropy', metrics=['accuracy'])
     padded_length = 44
     max_length = 3000
     batch_size = 32
@@ -60,7 +62,7 @@ def train(model, x_train, y_train):
 
     import time
     start_time = time.time()
-    model.fit_generator(
+    seq2seq_model.fit_generator(
         data_generator(x_train, y_train, batch_size=batch_size),
         steps_per_epoch=len(x_train) / batch_size,
         epochs=epochs,
@@ -72,8 +74,10 @@ def train(model, x_train, y_train):
 
     print(str(seconds / 60) + " minutes")
 
-    model.save('models/model3.h5py')
-    return model
+    seq2seq_model.save('models/seq2seq.h5')
+    encoder_model.save('models/encoder.h5')
+    decoder_model.save('models/decoder.h5')
+    return seq2seq_model
 
 def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_model, padded_length=44, max_length=3000):
     # Encode the input as state vectors.
@@ -93,10 +97,11 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
         output_tokens, h, c = decoder_model.predict(
             [target_seq] + states_value)
         # Sample a token
-        sampled_token_index = np.argmax(output_tokens[0, -1, :])
+        sampled_token_index = np.argmax(output_tokens[0, i, :])
         sampled_char = idxtoword[sampled_token_index]
 
         if sampled_char == 'eos':
+            print('reached: eos')
             decoded_sentence += '.'
         else:
             decoded_sentence += sampled_char + ' '
@@ -107,9 +112,10 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
             stop_condition = True
 
         i += 1
+        print(sampled_token_index)
         # Update the target sequence (of length 1).
-        target_seq = np.zeros((1, padded_length, max_length))
-        target_seq[0, -1, sampled_token_index] = 1.
+        #target_seq = np.zeros((1, padded_length, max_length))
+        target_seq[0, i, sampled_token_index] = 1.
 
         # Update states
         states_value = [h, c]
@@ -141,12 +147,12 @@ if __name__ == "__main__":
     import numpy as np
     import pickle
     from keras.models import Model
-    from keras.layers import Input, LSTM, Dense
+    from keras.layers import Input, LSTM, Dense, Masking
     from keras.utils import to_categorical
 
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', default='run', type=str)
+    parser.add_argument('--mode', default='test', type=str)
     parser.add_argument('--save_dir', default='./models')
     parser.add_argument('--output_dir', default='./result.txt')
     args = parser.parse_args()
@@ -156,15 +162,25 @@ if __name__ == "__main__":
 
 
     # Define Model
-    model, encoder_model, decoder_model = seq2seq_model()
+    seq2seq_model, encoder_model, decoder_model = seq2seq_model()
 
-    model.summary()
+    seq2seq_model.summary()
+    encoder_model.summary()
+    decoder_model.summary()
 
-    if args.mode == 'run':
+    model = [seq2seq_model, encoder_model, decoder_model]
+    if args.mode == 'test':
         import pandas as pd
-        model = load_model('model2.h5')
+        model = load_model('models/seq2seq.h5')
+        encoder_model = load_model('models/encoder.h5')
+        decoder_model = load_model('models/decoder.h5')
         result = test(encoder_model, decoder_model)
         output = pd.DataFrame.from_dict(result, orient='index').to_csv(args.output_dir, header=None)
     else:
         x_train = np.load('x_train.npy')
         y_train = np.load('y_train.npy')
+        x_test = np.load('x_test.npy')
+        y_test = np.load('y_test.npy')
+
+        data = [x_train, y_train, x_test, y_test]
+        train(model, data)
