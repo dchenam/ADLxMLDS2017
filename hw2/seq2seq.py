@@ -34,7 +34,8 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
         [decoder_output] + decoder_states)
 
     return model, encoder_model, decoder_model
-
+def my_loss(y_true, y_pred):
+    return K.categorical_crossentropy(y_true, y_pred)
 def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=200):
 
     seq2seq_model, encoder_model, decoder_model = model
@@ -100,30 +101,24 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
     # (to simplify, here we assume a batch of size 1).
     stop_condition = False
     decoded_sentence = ''
-
+    formatted_sentence = ''
     while not stop_condition:
         output_tokens, h, c = decoder_model.predict(
             [target_seq, input_seq] + states_value)
         # Sample a token
-        print(np.argmax(output_tokens[0][0]))
-        print(np.argmax(output_tokens[0][1]))
-        print(np.argmax(output_tokens[0][2]))
-        print(np.argmax(output_tokens[0][3]))
-        print(np.argmax(output_tokens[0][4]))
-        print(np.argmax(output_tokens[0][5]))
-        print(np.argmax(output_tokens[0][6]))
-        sampled_token_index = np.argmax(output_tokens[0, 0, :])
+        sampled_token_index = np.argmax(output_tokens[0, -1, :])
         sampled_char = idxtoword[sampled_token_index]
 
-        if sampled_char == 'eos':
-            print('reached: eos')
-            decoded_sentence += '.'
-        else:
-            decoded_sentence += sampled_char + ' '
+        if sampled_char != 'eos':
+            formatted_sentence += sampled_char + ' '
+
+        decoded_sentence += sampled_char
+
 
         # Exit condition: either hit max length
         # or find stop character.
-        if (sampled_char == 'eos' or len(decoded_sentence) > padded_length):
+        if sampled_char == 'eos' or len(decoded_sentence) > padded_length:
+            formatted_sentence = formatted_sentence[:-1]
             stop_condition = True
 
         print(sampled_token_index)
@@ -134,7 +129,7 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
         # Update states
         states_value = [h, c]
 
-    return decoded_sentence
+    return formatted_sentence
 
 def test(encoder_model, decoder_model):
 
@@ -163,6 +158,7 @@ if __name__ == "__main__":
     from keras.models import Model
     from keras.layers import Input, LSTM, Dense, Masking, RepeatVector, Concatenate
     from keras.utils import to_categorical
+    import keras.backend as K
     from keras.preprocessing.sequence import pad_sequences
 
     import argparse
