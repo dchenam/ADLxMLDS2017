@@ -16,9 +16,9 @@ def get_feat(data_dir='MLDS_hw2_data/', type='train'):
         feat_vec[i] = feat[1]
 
     # Normalize Input Vector
-    # mean = np.mean(feat_vec)
-    # std = np.std(feat_vec)
-    # normalized_feat = (feat_vec - mean) / std
+    mean = np.mean(feat_vec)
+    std = np.std(feat_vec)
+    normalized_feat = (feat_vec - mean) / std
 
     normalized_feat = feat_vec
     return normalized_feat, idx
@@ -35,6 +35,7 @@ def get_label(data_dir='MLDS_hw2_data/', type='train'):
         label['caption'] = list(map(lambda x: x + '<eos>', label['caption']))
     return sorted_label
 
+
 def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', vocab_size=3000):
     import numpy as np
     import pickle
@@ -45,7 +46,7 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
         normalized_feat, idx = get_feat(data_dir, 'train')
         sorted_label = get_label(data_dir, 'train')
         all_captions = ['<bos>' + item for label in sorted_label for item in label['caption']]
-
+        print(sorted_label[0])
         tokenizer = Tokenizer(num_words=vocab_size)
         tokenizer.fit_on_texts(all_captions)
         tokenized_captions = [tokenizer.texts_to_sequences(label['caption']) for label in sorted_label]
@@ -57,20 +58,31 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
         with open('idx_to_word.pickle', 'wb') as handle:
             pickle.dump(idx_to_word, handle)
 
-        #padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
-        np.save('y_' + type + '.npy', tokenized_captions)
+        shifted_tokenized_captions = [[[2] + sequence[:-1] for sequence in captions] for captions in tokenized_captions]
+        padded_shift = [pad_sequences(caption, padding='post', maxlen=44) for caption in shifted_tokenized_captions]
+        padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
+
+        np.save('y_shift_' + type + '.npy', padded_shift)
+        np.save('y_' + type + '.npy', padded_captions)
         np.save('idx_' + type + '.npy', idx)
         np.save('x_' + type + '.npy', normalized_feat)
 
         if include == 'test_data':
             normalized_feat, idx = get_feat(data_dir, 'test')
             sorted_label = get_label(data_dir, 'test')
+
             tokenized_captions = [tokenizer.texts_to_sequences(label['caption']) for label in sorted_label]
-            #padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
-            np.save('y_test.npy', tokenized_captions)
+            shifted_tokenized_captions = [[[2] + sequence[:-1] for sequence in captions] for captions in
+                                          tokenized_captions]
+            padded_shift = [pad_sequences(caption, padding='post', maxlen=44) for caption in shifted_tokenized_captions]
+            padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
+
+            np.save('y_shift_test.npy', padded_shift)
+            np.save('y_test.npy', padded_captions)
             np.save('idx_test.npy', idx)
             np.save('x_test.npy', normalized_feat)
     else:
+        normalized_feat, idx = get_feat(data_dir, 'test')
         np.save('idx_' + type + '.npy', idx)
         np.save('x_' + type + '.npy', normalized_feat)
 
