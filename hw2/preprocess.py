@@ -20,7 +20,6 @@ def get_feat(data_dir='MLDS_hw2_data/', type='train'):
     std = np.std(feat_vec)
     normalized_feat = (feat_vec - mean) / std
 
-    normalized_feat = feat_vec
     return normalized_feat, idx
 
 def get_label(data_dir='MLDS_hw2_data/', type='train'):
@@ -46,7 +45,6 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
         normalized_feat, idx = get_feat(data_dir, 'train')
         sorted_label = get_label(data_dir, 'train')
         all_captions = ['<bos>' + item for label in sorted_label for item in label['caption']]
-        print(sorted_label[0])
         tokenizer = Tokenizer(num_words=vocab_size)
         tokenizer.fit_on_texts(all_captions)
         tokenized_captions = [tokenizer.texts_to_sequences(label['caption']) for label in sorted_label]

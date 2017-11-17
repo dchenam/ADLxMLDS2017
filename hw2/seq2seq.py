@@ -1,16 +1,18 @@
 def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
-    encoder_input = Input(shape=(80, 4096))
+    encoder_input = Input(shape=(80, 4096), name='encoder_input')
     masked_encoder_input = Masking()(encoder_input)
-    encoder = LSTM(hidden_units, return_state=True)
+    encoder = LSTM(hidden_units, return_state=True, name='encoder_lstm')
     encoder_output, state_h, state_c = encoder(masked_encoder_input)
 
     encoder_states = [state_h, state_c]
 
-    decoder_input = Input(shape=(padded_length, max_length))
-    masked_decoder_input = Masking()(decoder_input)
-    decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True)
-    decoder_output, _, _ = decoder_lstm(masked_decoder_input, initial_state=encoder_states)
-    decoder_dense = Dense(max_length, activation='softmax')
+    decoder_input = Input(shape=(padded_length, max_length), name='decoder_input')
+    encoder_output = RepeatVector(44, name='repeat_encoder_output')(encoder_output)
+    concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, encoder_output])
+    masked_concated = Masking()(concated_input)
+    decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm')
+    decoder_output, _, _ = decoder_lstm(masked_concated, initial_state=encoder_states)
+    decoder_dense = Dense(max_length, activation='softmax', name='decoder_dense')
     decoder_output = decoder_dense(decoder_output)
 
     model = Model([encoder_input, decoder_input], decoder_output)
@@ -23,12 +25,12 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
 
     decoder_output, state_h, state_c = decoder_lstm(
-        masked_decoder_input, initial_state=decoder_states_inputs)
+        masked_concated, initial_state=decoder_states_inputs)
     decoder_states = [state_h, state_c]
 
     decoder_output = decoder_dense(decoder_output)
     decoder_model = Model(
-        [decoder_input] + decoder_states_inputs,
+        [decoder_input, encoder_input] + decoder_states_inputs,
         [decoder_output] + decoder_states)
 
     return model, encoder_model, decoder_model
@@ -55,7 +57,7 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
                 batch_decoder_output[i] = to_categorical(labels[sample_index][caption_index], 3000)
 
                 caption_index += 1
-
+                #print('sample_index: ' + str(sample_index) + ' caption_index: ' + str(caption_index))
                 if caption_index > len(labels[sample_index]) - 1:
                     sample_index += 1
                     caption_index = 0
@@ -152,13 +154,13 @@ if __name__ == "__main__":
     import numpy as np
     import pickle
     from keras.models import Model
-    from keras.layers import Input, LSTM, Dense, Masking
+    from keras.layers import Input, LSTM, Dense, Masking, RepeatVector, Concatenate
     from keras.utils import to_categorical
     from keras.preprocessing.sequence import pad_sequences
 
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', default='test', type=str)
+    parser.add_argument('-mode', default='test', type=str)
     parser.add_argument('--save_dir', default='./models')
     parser.add_argument('--output_dir', default='./result.txt')
     args = parser.parse_args()
