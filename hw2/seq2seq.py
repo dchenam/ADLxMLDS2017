@@ -53,12 +53,9 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
 
                 sequence = labels[sample_index][caption_index]
                 shifted_sequence = np.insert(sequence[:-1], 0, 2)
-                seq_list = [sequence, shifted_sequence]
-
-                padded_list = pad_sequences(seq_list, padding='post', maxlen=padded_length)
-                padded_sequence, padded_shift = padded_list
-                batch_decoder_input[i] = to_categorical(padded_shift, max_length)
-                batch_decoder_output[i] = to_categorical(padded_sequence, max_length)
+                padded_list = pad_sequences([sequence, shifted_sequence], padding='post', maxlen=44)
+                batch_decoder_input[i] = to_categorical(padded_list[1], 3000)
+                batch_decoder_output[i] = to_categorical(padded_list[0], 3000)
 
                 caption_index += 1
 
@@ -66,7 +63,7 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
                     sample_index += 1
                     caption_index = 0
 
-                if sample_index > x_train_size - 1:
+                if (sample_index > x_train_size - 1):
                     sample_index = 0
                     caption_index = 0
 
