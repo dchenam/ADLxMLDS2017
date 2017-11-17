@@ -36,11 +36,11 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
 def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=200):
 
     seq2seq_model, encoder_model, decoder_model = model
-    x_train, y_train, x_test, y_test = data
+    x_train, y_train, y_train_shift, x_test, y_test, y_test_shift = data
 
     seq2seq_model.compile(optimizer="Adam", loss='categorical_crossentropy', metrics=['accuracy'])
 
-    def data_generator(features, labels, batch_size):
+    def data_generator(features, labels, shifted_labels, batch_size):
         batch_encoder_input = np.zeros((batch_size, features.shape[1], features.shape[2]))
         batch_decoder_input = np.zeros((batch_size, padded_length, max_length))
         batch_decoder_output = np.zeros((batch_size, padded_length, max_length))
@@ -49,13 +49,10 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
         caption_index = 0
         while True:
             for i in range(batch_size):
-                batch_encoder_input[i] = features[sample_index]
 
-                sequence = labels[sample_index][caption_index]
-                shifted_sequence = np.insert(sequence[:-1], 0, 2)
-                padded_list = pad_sequences([sequence, shifted_sequence], padding='post', maxlen=44)
-                batch_decoder_input[i] = to_categorical(padded_list[1], 3000)
-                batch_decoder_output[i] = to_categorical(padded_list[0], 3000)
+                batch_encoder_input[i] = features[sample_index]
+                batch_decoder_input[i] = to_categorical(shifted_labels[sample_index][caption_index], 3000)
+                batch_decoder_output[i] = to_categorical(labels[sample_index][caption_index], 3000)
 
                 caption_index += 1
 
@@ -72,10 +69,10 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
     import time
     start_time = time.time()
     seq2seq_model.fit_generator(
-        data_generator(x_train, y_train, batch_size=batch_size),
+        data_generator(x_train, y_train, y_train_shift, batch_size=batch_size),
         steps_per_epoch=len(x_train) / batch_size,
         epochs=epochs,
-        validation_data=data_generator(x_test, y_test, batch_size=batch_size),
+        validation_data=data_generator(x_test, y_test, y_test_shift, batch_size=batch_size),
         validation_steps=len(y_test) / batch_size,
         verbose=1)
     end_time = time.time()
@@ -186,8 +183,10 @@ if __name__ == "__main__":
     else:
         x_train = np.load('x_train.npy')
         y_train = np.load('y_train.npy')
+        y_train_shift = np.load('y_shift_train.npy')
         x_test = np.load('x_test.npy')
         y_test = np.load('y_test.npy')
-        data = [x_train, y_train, x_test, y_test]
+        y_test_shift = np.load('y_shift_test.npy')
+        data = [x_train, y_train, y_train_shift, x_test, y_test, y_test_shift]
 
         train(model, data)
