@@ -1,17 +1,17 @@
 def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     encoder_input = Input(shape=(80, 4096), name='encoder_input')
-    masked_encoder_input = Masking()(encoder_input)
     encoder = LSTM(hidden_units, return_state=True, name='encoder_lstm')
-    encoder_output, state_h, state_c = encoder(masked_encoder_input)
+    encoder_output, state_h, state_c = encoder(encoder_input)
 
     encoder_states = [state_h, state_c]
 
     decoder_input = Input(shape=(padded_length, max_length), name='decoder_input')
+    masked_decoder = Masking()(decoder_input)
     encoder_output = RepeatVector(44, name='repeat_encoder_output')(encoder_output)
-    concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, encoder_output])
-    masked_concated = Masking()(concated_input)
+    concated_input = Concatenate(axis=-1, name='concated_input')([masked_decoder, encoder_output])
+
     decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm')
-    decoder_output, _, _ = decoder_lstm(masked_concated, initial_state=encoder_states)
+    decoder_output, _, _ = decoder_lstm(concated_input, initial_state=encoder_states)
     decoder_dense = Dense(max_length, activation='softmax', name='decoder_dense')
     decoder_output = decoder_dense(decoder_output)
 
@@ -25,7 +25,7 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
 
     decoder_output, state_h, state_c = decoder_lstm(
-        masked_concated, initial_state=decoder_states_inputs)
+        concated_input, initial_state=decoder_states_inputs)
     decoder_states = [state_h, state_c]
 
     decoder_output = decoder_dense(decoder_output)
@@ -103,9 +103,16 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
 
     while not stop_condition:
         output_tokens, h, c = decoder_model.predict(
-            [target_seq] + states_value)
+            [target_seq, input_seq] + states_value)
         # Sample a token
-        sampled_token_index = np.argmax(output_tokens[0, -1, :])
+        print(np.argmax(output_tokens[0][0]))
+        print(np.argmax(output_tokens[0][1]))
+        print(np.argmax(output_tokens[0][2]))
+        print(np.argmax(output_tokens[0][3]))
+        print(np.argmax(output_tokens[0][4]))
+        print(np.argmax(output_tokens[0][5]))
+        print(np.argmax(output_tokens[0][6]))
+        sampled_token_index = np.argmax(output_tokens[0, 0, :])
         sampled_char = idxtoword[sampled_token_index]
 
         if sampled_char == 'eos':
