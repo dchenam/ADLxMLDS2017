@@ -4,35 +4,42 @@ def get_feat(data_dir='MLDS_hw2_data/', type='train'):
     import numpy as np
     feat_path = os.path.join(data_dir, type + 'ing_data/feat/')
 
-    feat = {}
+    feat_dict = {}
     for name in glob.glob(os.path.join(feat_path, '*.npy')):
-        feat[os.path.splitext(os.path.basename(name))[0]] = np.load(name)
+        feat_dict[os.path.splitext(os.path.basename(name))[0]] = np.load(name)
 
-    sorted_feat = sorted(feat.items())
-    idx = [None] * len(sorted_feat)
-    feat_vec = [None] * len(sorted_feat)
-    for i, feat in enumerate(sorted_feat):
-        idx[i] = feat[0]
-        feat_vec[i] = feat[1]
+    return feat_dict
 
-    # Normalize Input Vector
-    mean = np.mean(feat_vec)
-    std = np.std(feat_vec)
-    normalized_feat = (feat_vec - mean) / std
-
-    return normalized_feat, idx
 
 def get_label(data_dir='MLDS_hw2_data/', type='train'):
     import os
     import json
+
     label_path = os.path.join(data_dir, type + 'ing_label.json')
     with open(label_path) as data_file:
-        label = json.load(data_file)
-
-    sorted_label = sorted(label, key=lambda k: k['id'])
-    for label in sorted_label:
+        label_dict = json.load(data_file)
+    for label in label_dict:
         label['caption'] = list(map(lambda x: x + '<eos>', label['caption']))
-    return sorted_label
+    return label_dict
+
+def get_data(data_dir='MLDS_hw2_data/', type='train'):
+    import numpy as np
+    feat_dict = get_feat(data_dir, type)
+    label_dict = get_label(data_dir, type)
+    idx = [None] * len(feat_dict)
+    sorted_feat = [None] * len(feat_dict)
+    sorted_label = [None] * len(label_dict)
+    for i in range(len(feat_dict)):
+        sorted_label[i] = label_dict[i]['caption']
+        key = label_dict[i]['id']
+        sorted_feat[i] = feat_dict[key]
+        idx[i] = key
+    #Normalize Data
+    mean = np.mean(sorted_feat)
+    std = np.std(sorted_feat)
+    feat_data = (sorted_feat - mean) / std
+
+    return idx, feat_data, sorted_label
 
 
 def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', vocab_size=3000):
@@ -42,12 +49,12 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
     from keras.preprocessing.sequence import pad_sequences
 
     if type == 'train':
-        normalized_feat, idx = get_feat(data_dir, 'train')
-        sorted_label = get_label(data_dir, 'train')
-        all_captions = ['<bos>' + item for label in sorted_label for item in label['caption']]
+        idx, normalized_feat, sorted_label= get_data(data_dir, 'train')
+
+        all_captions = ['<bos>' + item for label in sorted_label for item in label]
         tokenizer = Tokenizer(num_words=vocab_size)
         tokenizer.fit_on_texts(all_captions)
-        tokenized_captions = [tokenizer.texts_to_sequences(label['caption']) for label in sorted_label]
+        tokenized_captions = [tokenizer.texts_to_sequences(label) for label in sorted_label]
         tokenizer.word_index['pad'] = 0
         idx_to_word = {v: k for k, v in tokenizer.word_index.items()}
 
@@ -66,10 +73,9 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
         np.save('x_' + type + '.npy', normalized_feat)
 
         if include == 'test_data':
-            normalized_feat, idx = get_feat(data_dir, 'test')
-            sorted_label = get_label(data_dir, 'test')
+            idx, normalized_feat, sorted_label = get_data(data_dir, 'test')
 
-            tokenized_captions = [tokenizer.texts_to_sequences(label['caption']) for label in sorted_label]
+            tokenized_captions = [tokenizer.texts_to_sequences(label) for label in sorted_label]
             shifted_tokenized_captions = [[[2] + sequence for sequence in captions] for captions in
                                           tokenized_captions]
             padded_shift = [pad_sequences(caption, padding='post', maxlen=44) for caption in shifted_tokenized_captions]
@@ -80,7 +86,7 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
             np.save('idx_test.npy', idx)
             np.save('x_test.npy', normalized_feat)
     else:
-        normalized_feat, idx = get_feat(data_dir, 'test')
+        idx, normalized_feat, sorted_label = get_data(data_dir, 'test')
         np.save('idx_' + type + '.npy', idx)
         np.save('x_' + type + '.npy', normalized_feat)
 
