@@ -6,9 +6,9 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     encoder_states = [state_h, state_c]
 
     decoder_input = Input(shape=(padded_length, max_length), name='decoder_input')
+    masked_input = Masking()(decoder_input)
     repeat_input = RepeatVector(44, name='repeat_encoder_output')(encoder_output)
-
-    concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, repeat_input])
+    concated_input = Concatenate(axis=-1, name='concated_input')([masked_input, repeat_input])
 
     decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm', implementation=2)
     decoder_output, _, _ = decoder_lstm(concated_input, initial_state=encoder_states)
