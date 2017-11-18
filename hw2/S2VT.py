@@ -1,48 +1,72 @@
-def seq2seq_model(max_length=3000, hidden_units=256):
+def S2VT_model(max_length=3000, hidden_units=1000):
+
+    encoder_padding = Input(shape=(44, 4096), name='encoder_padding')
+    decoder_padding = Input(shape=(80, 3000), name='decoder_padding')
+
     encoder_input = Input(shape=(80, 4096), name='encoder_input')
-    encoder = LSTM(hidden_units, return_state=True, name='encoder_lstm', implementation=2)
-    encoder_output, state_h, state_c = encoder(encoder_input)
-    encoder_states = [state_h, state_c]
+    decoder_input = Input(shape=(44, 3000), name='decoder_input')
 
-    decoder_input = Input(shape=(44, max_length), name='decoder_input')
-    repeat_input = RepeatVector(44, name='repeat_encoder_output')(encoder_output)
-    concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, repeat_input])
-
+    encoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='encoder_lstm', implementation=2)
     decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm', implementation=2)
-    decoder_output, _, _ = decoder_lstm(concated_input, initial_state=encoder_states)
+
+    # Encoding Stage
+    encoder_output_1, lstm1_h, lstm1_c = encoder_lstm(encoder_input)
+    encoder_states = [lstm1_h, lstm1_c]
+
+    encoder_concat = Concatenate(axis=-1, name='encoding_concat')([decoder_padding, encoder_output_1])
+    _, lstm2_h, lstm2_c = decoder_lstm(encoder_concat)
+    decoder_states = [lstm2_h, lstm2_c]
+
+    # Decoding Stage
+    encoder_output_2, _, _ = encoder_lstm(encoder_padding, initial_state=encoder_states)
+    decoder_concat = Concatenate(axis=-1, name='decoding_concat')([decoder_input, encoder_output_2])
+    decoder_output, _, _ = decoder_lstm(decoder_concat, initial_state=decoder_states)
     decoder_dense = Dense(max_length, activation='softmax', name='decoder_dense')
     decoder_output = decoder_dense(decoder_output)
 
-    model = Model([encoder_input, decoder_input], decoder_output)
+    model = Model([encoder_padding, decoder_padding, encoder_input, decoder_input], decoder_output)
 
     return model
 
-def inference_model(max_length=3000, hidden_units=256):
+def inference_model(max_length=3000, hidden_units=1000):
+    encoder_padding = Input(shape=(1, 4096), name='encoder_padding')
+    decoder_padding = Input(shape=(1, 3000), name='decoder_padding')
+
     encoder_input = Input(shape=(80, 4096), name='encoder_input')
-    encoder = LSTM(hidden_units, return_state=True, name='encoder_lstm', implementation=2)
-    encoder_output, state_h, state_c = encoder(encoder_input)
-    encoder_states = [state_h, state_c]
+    decoder_input = Input(shape=(1, 3000), name='decoder_input')
 
-    decoder_input = Input(shape=(1, max_length), name='decoder_input')
-    repeat_input = RepeatVector(1, name='repeat_encoder_output')(encoder_output)
-    concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, repeat_input])
-
+    encoder_lstm = LSTM(hidden_units, return_state=True, name='encoder_lstm', implementation=2)
     decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm', implementation=2)
-    decoder_output, _, _ = decoder_lstm(concated_input, initial_state=encoder_states)
+
+    # Encoding Stage
+    encoder_output_1, lstm1_h, lstm1_c = encoder_lstm(encoder_input)
+    encoder_states = [lstm1_h, lstm1_c]
+    repeat_input_1 = RepeatVector(1, name='repeat_encoder_output')(encoder_output_1)
+    encoder_concat = Concatenate(axis=-1, name='encoding_concat')([decoder_padding, repeat_input_1])
+    _, lstm2_h, lstm2_c = decoder_lstm(encoder_concat)
+    decoder_states = [lstm2_h, lstm2_c]
+
+    encoder_model = Model([decoder_padding, encoder_input], decoder_states)
+
+    # Decoding Stage
+    encoder_output_2, _, _ = encoder_lstm(encoder_padding, initial_state=encoder_states)
+    repeat_input_2 = RepeatVector(1, name='repeat_encoder_output2')(encoder_output_2)
+    decoder_concat = Concatenate(axis=-1, name='decoding_concat')([decoder_input, repeat_input_2])
+
     decoder_dense = Dense(max_length, activation='softmax', name='decoder_dense')
 
-    # ----Decoding Inference Model------#
-    encoder_model = Model(encoder_input, encoder_states)
     decoder_state_input_h = Input(shape=(hidden_units,))
     decoder_state_input_c = Input(shape=(hidden_units,))
     decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
 
     decoder_output, state_h, state_c = decoder_lstm(
-        concated_input, initial_state=decoder_states_inputs)
+        decoder_concat, initial_state=decoder_states_inputs)
+
     decoder_states = [state_h, state_c]
     decoder_output = decoder_dense(decoder_output)
+
     decoder_model = Model(
-        [encoder_input, decoder_input] + decoder_states_inputs,
+        [encoder_padding, encoder_input, decoder_input] + decoder_states_inputs,
         [decoder_output] + decoder_states)
 
     return encoder_model, decoder_model
@@ -71,10 +95,10 @@ def train(model, data, batch_size, epochs):
 
                 if sample_index >= x_train_size:
                     sample_index = 0
-
-            yield [batch_encoder_input, batch_decoder_input], batch_decoder_output
-
-    checkpoint = ModelCheckpoint(filepath='models/best.hdf5', verbose=0, save_best_only=True)
+            batch_encoder_padding = np.zeros((batch_size, 44, 4096))
+            batch_decoder_padding = np.zeros((batch_size, 80, 3000))
+            yield [batch_encoder_padding, batch_decoder_padding,
+                   batch_encoder_input, batch_decoder_input], batch_decoder_output
 
     import time
     start_time = time.time()
@@ -85,25 +109,27 @@ def train(model, data, batch_size, epochs):
         epochs=epochs,
         validation_data=data_generator(x_test, y_test, y_test_shift, batch_size=batch_size),
         validation_steps=1450/batch_size,
-        callbacks=[checkpoint],
         verbose=1)
     end_time = time.time()
     seconds = (end_time - start_time)
 
     print(str(seconds / 60) + " minutes")
 
-    model.save_weights('models/seq2seq.h5')
+    model.save_weights('models/S2VT.h5')
 
     return model
 
 def decode_sequence(input_seq, encoder_model, decoder_model, wordtoidx, idxtoword, padded_length=44, max_length=3000):
-    # Encode the input as state vectors.
-    states_value = encoder_model.predict(input_seq)
-
     # Generate empty target sequence of length 1.
     target_seq = np.zeros((1, 1, max_length))
     # Populate the first character of target sequence with the start character.
     target_seq[0, 0, wordtoidx['bos']] = 1.
+
+    encoder_padding = np.zeros((1, 44, 4096))
+    decoder_padding = np.zeros((1, 80, 3000))
+
+    # Encode the input as state vectors.
+    decoder_states = encoder_model.predict([decoder_padding, input_seq])
 
     # Sampling loop for a batch of sequences
     # (to simplify, here we assume a batch of size 1).
@@ -112,7 +138,7 @@ def decode_sequence(input_seq, encoder_model, decoder_model, wordtoidx, idxtowor
     formatted_sentence = ''
     while not stop_condition:
         output_tokens, h, c = decoder_model.predict(
-            [input_seq, target_seq] + states_value)
+            [encoder_padding, input_seq, target_seq] + decoder_states)
         # Sample a token
         sampled_token_index = np.argmax(output_tokens[0, -1, :])
         sampled_char = idxtoword[sampled_token_index]
@@ -166,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument('-mode', default='test', type=str)
     parser.add_argument('--save_dir', default='./models')
     parser.add_argument('--output_dir', default='./result.txt')
-    parser.add_argument('--model_dir', default='./models/seq2seq.h5')
+    parser.add_argument('--model_dir', default='./models/S2VT.h5')
     parser.add_argument('-batch_size', default=32)
     parser.add_argument('-epochs', default=200)
     args = parser.parse_args()
@@ -174,8 +200,8 @@ if __name__ == "__main__":
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-    seq2seq_model = seq2seq_model()
-    seq2seq_model.summary()
+    S2VT_model = S2VT_model()
+    S2VT_model.summary()
 
     if args.mode == 'test':
         import pandas as pd
@@ -192,4 +218,4 @@ if __name__ == "__main__":
         y_test = np.load('y_test.npy')
         y_test_shift = np.load('y_shift_test.npy')
         data = [x_train, y_train, y_train_shift, x_test, y_test, y_test_shift]
-        train(seq2seq_model, data, batch_size=int(args.batch_size), epochs=int(args.epochs))
+        train(S2VT_model, data, batch_size=int(args.batch_size), epochs=int(args.epochs))
