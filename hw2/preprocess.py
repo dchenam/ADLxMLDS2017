@@ -56,7 +56,7 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
         with open('idx_to_word.pickle', 'wb') as handle:
             pickle.dump(idx_to_word, handle)
 
-        shifted_tokenized_captions = [[[2] + sequence[:-1] for sequence in captions] for captions in tokenized_captions]
+        shifted_tokenized_captions = [[[2] + sequence for sequence in captions] for captions in tokenized_captions]
         padded_shift = [pad_sequences(caption, padding='post', maxlen=44) for caption in shifted_tokenized_captions]
         padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
 
@@ -70,7 +70,7 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', voc
             sorted_label = get_label(data_dir, 'test')
 
             tokenized_captions = [tokenizer.texts_to_sequences(label['caption']) for label in sorted_label]
-            shifted_tokenized_captions = [[[2] + sequence[:-1] for sequence in captions] for captions in
+            shifted_tokenized_captions = [[[2] + sequence for sequence in captions] for captions in
                                           tokenized_captions]
             padded_shift = [pad_sequences(caption, padding='post', maxlen=44) for caption in shifted_tokenized_captions]
             padded_captions = [pad_sequences(caption, padding='post', maxlen=44) for caption in tokenized_captions]
