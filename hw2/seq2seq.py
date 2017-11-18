@@ -1,17 +1,16 @@
 def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     encoder_input = Input(shape=(80, 4096), name='encoder_input')
-    encoder = LSTM(hidden_units, return_state=True, name='encoder_lstm')
+    encoder = LSTM(hidden_units, return_state=True, name='encoder_lstm', implementation=2)
     encoder_output, state_h, state_c = encoder(encoder_input)
 
     encoder_states = [state_h, state_c]
 
-    decoder_input = Input(shape=(padded_length, max_length), name='decoder_input')
-    masked_decoder = Masking()(decoder_input)
-    encoder_output = RepeatVector(44, name='repeat_encoder_output')(encoder_output)
-    concated_input = Concatenate(axis=-1, name='concated_input')([masked_decoder, encoder_output])
+    decoder_input = Input(shape=(None, max_length), name='decoder_input')
+    #concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, encoder_output])
+    #repeat_input = RepeatVector(44, name='repeat_encoder_output')(concated_input)
 
-    decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm')
-    decoder_output, _, _ = decoder_lstm(concated_input, initial_state=encoder_states)
+    decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm', implementation=2)
+    decoder_output, _, _ = decoder_lstm(decoder_input, initial_state=encoder_states)
     decoder_dense = Dense(max_length, activation='softmax', name='decoder_dense')
     decoder_output = decoder_dense(decoder_output)
 
@@ -25,7 +24,7 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
 
     decoder_output, state_h, state_c = decoder_lstm(
-        concated_input, initial_state=decoder_states_inputs)
+        decoder_input, initial_state=decoder_states_inputs)
     decoder_states = [state_h, state_c]
 
     decoder_output = decoder_dense(decoder_output)
@@ -34,14 +33,13 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
         [decoder_output] + decoder_states)
 
     return model, encoder_model, decoder_model
-def my_loss(y_true, y_pred):
-    return K.categorical_crossentropy(y_true, y_pred)
+
 def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=200):
 
     seq2seq_model, encoder_model, decoder_model = model
     x_train, y_train, y_train_shift, x_test, y_test, y_test_shift = data
 
-    seq2seq_model.compile(optimizer="Adam", loss='categorical_crossentropy', metrics=['accuracy'])
+    seq2seq_model.compile(optimizer="Adam", loss="categorical_crossentropy", metrics=['accuracy'])
 
     def data_generator(features, labels, shifted_labels, batch_size):
         batch_encoder_input = np.zeros((batch_size, features.shape[1], features.shape[2]))
@@ -50,6 +48,7 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
         x_train_size = len(features)
         sample_index = 0
         caption_index = 0
+        word_index = 0
         while True:
             for i in range(batch_size):
 
@@ -57,15 +56,18 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
                 batch_decoder_input[i] = to_categorical(shifted_labels[sample_index][caption_index], 3000)
                 batch_decoder_output[i] = to_categorical(labels[sample_index][caption_index], 3000)
 
-                caption_index += 1
+                word_index += 1
+                if word_index > 43:
+                    caption_index += 1
+                    word_index = 0
                 #print('sample_index: ' + str(sample_index) + ' caption_index: ' + str(caption_index))
                 if caption_index > len(labels[sample_index]) - 1:
                     sample_index += 1
                     caption_index = 0
-
                 if (sample_index > x_train_size - 1):
                     sample_index = 0
                     caption_index = 0
+                    word_index = 0
 
             yield [batch_encoder_input, batch_decoder_input], batch_decoder_output
 
@@ -156,7 +158,7 @@ if __name__ == "__main__":
     import numpy as np
     import pickle
     from keras.models import Model
-    from keras.layers import Input, LSTM, Dense, Masking, RepeatVector, Concatenate
+    from keras.layers import Input, LSTM, Dense, Masking, RepeatVector, Concatenate, Lambda
     from keras.utils import to_categorical
     import keras.backend as K
     from keras.preprocessing.sequence import pad_sequences
