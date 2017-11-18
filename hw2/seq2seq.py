@@ -27,7 +27,6 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     decoder_output, state_h, state_c = decoder_lstm(
         concated_input, initial_state=decoder_states_inputs)
     decoder_states = [state_h, state_c]
-
     decoder_output = decoder_dense(decoder_output)
     decoder_model = Model(
         [decoder_input, encoder_input] + decoder_states_inputs,
@@ -48,37 +47,31 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
         batch_decoder_output = np.zeros((batch_size, padded_length, max_length))
         x_train_size = len(features)
         sample_index = 0
-        caption_index = 0
-        word_index = 0
         while True:
             for i in range(batch_size):
+                caption_index = np.random.randint(len(labels[sample_index]))
                 batch_encoder_input[i] = features[sample_index]
                 batch_decoder_input[i] = to_categorical(shifted_labels[sample_index][caption_index], 3000)
                 batch_decoder_output[i] = to_categorical(labels[sample_index][caption_index], 3000)
 
-                word_index += 1
-                if word_index > 43:
-                    caption_index += 1
-                    word_index = 0
-                #print('sample_index: ' + str(sample_index) + ' caption_index: ' + str(caption_index))
-                if caption_index > len(labels[sample_index]) - 1:
-                    sample_index += 1
-                    caption_index = 0
+                sample_index += 1
+
                 if (sample_index > x_train_size - 1):
                     sample_index = 0
-                    caption_index = 0
-                    word_index = 0
+
 
             yield [batch_encoder_input, batch_decoder_input], batch_decoder_output
 
+    checkpointer = ModelCheckpoint(filepath='/models/best.h5', verbose=1, save_best_only=True)
+
     import time
     start_time = time.time()
+
     seq2seq_model.fit_generator(
         data_generator(x_train, y_train, y_train_shift, batch_size=batch_size),
         steps_per_epoch=len(x_train) / batch_size,
         epochs=epochs,
-        validation_data=data_generator(x_test, y_test, y_test_shift, batch_size=batch_size),
-        validation_steps=len(y_test) / batch_size,
+        callbacks=[checkpointer],
         verbose=1)
     end_time = time.time()
     seconds = (end_time - start_time)
@@ -129,7 +122,7 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
 
     return formatted_sentence
 
-def test(encoder_model, decoder_model):
+def test(model):
 
     x_test = np.load('x_test.npy')
     idx_test = np.load('idx_test.npy')
@@ -142,7 +135,7 @@ def test(encoder_model, decoder_model):
     result = {}
 
     for i in range(len(x_test)):
-        result[idx_test[i]] = decode_sequence(x_test[i].reshape((1, 80, 4096)), wordtoidx, idxtoword, encoder_model, decoder_model)
+        result[idx_test[i]] = decode_sequence(x_test[i].reshape((1, 80, 4096)), wordtoidx, idxtoword, model)
 
     return result
 
@@ -156,6 +149,7 @@ if __name__ == "__main__":
     from keras.models import Model
     from keras.layers import Input, LSTM, Dense, Masking, RepeatVector, Concatenate, Lambda
     from keras.utils import to_categorical
+    from keras.callbacks import ModelCheckpoint
     from keras.preprocessing.sequence import pad_sequences
 
     import argparse
@@ -172,7 +166,7 @@ if __name__ == "__main__":
 
     seq2seq_model.summary()
 
-    model = [seq2seq_model, encoder_model, decoder_model]
+
     if args.mode == 'test':
         import pandas as pd
 
@@ -180,7 +174,7 @@ if __name__ == "__main__":
         encoder_model = load_model('models/encoder.h5')
         decoder_model = load_model('models/decoder.h5')
 
-        predicted = test(encoder_model, decoder_model)
+        predicted = test(model)
         output = pd.DataFrame.from_dict(predicted, orient='index').to_csv(args.output_dir, header=None)
     else:
         x_train = np.load('x_train.npy')
@@ -191,4 +185,5 @@ if __name__ == "__main__":
         y_test_shift = np.load('y_shift_test.npy')
         data = [x_train, y_train, y_train_shift, x_test, y_test, y_test_shift]
 
+        model = [seq2seq_model, encoder_model, decoder_model]
         train(model, data)
