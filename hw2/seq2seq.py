@@ -5,12 +5,13 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
 
     encoder_states = [state_h, state_c]
 
-    decoder_input = Input(shape=(None, max_length), name='decoder_input')
-    #concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, encoder_output])
-    #repeat_input = RepeatVector(44, name='repeat_encoder_output')(concated_input)
+    decoder_input = Input(shape=(padded_length, max_length), name='decoder_input')
+    repeat_input = RepeatVector(44, name='repeat_encoder_output')(encoder_output)
+
+    concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, repeat_input])
 
     decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm', implementation=2)
-    decoder_output, _, _ = decoder_lstm(decoder_input, initial_state=encoder_states)
+    decoder_output, _, _ = decoder_lstm(concated_input, initial_state=encoder_states)
     decoder_dense = Dense(max_length, activation='softmax', name='decoder_dense')
     decoder_output = decoder_dense(decoder_output)
 
@@ -24,7 +25,7 @@ def seq2seq_model(max_length=3000, padded_length=44, hidden_units=256):
     decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
 
     decoder_output, state_h, state_c = decoder_lstm(
-        decoder_input, initial_state=decoder_states_inputs)
+        concated_input, initial_state=decoder_states_inputs)
     decoder_states = [state_h, state_c]
 
     decoder_output = decoder_dense(decoder_output)
@@ -51,7 +52,6 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
         word_index = 0
         while True:
             for i in range(batch_size):
-
                 batch_encoder_input[i] = features[sample_index]
                 batch_decoder_input[i] = to_categorical(shifted_labels[sample_index][caption_index], 3000)
                 batch_decoder_output[i] = to_categorical(labels[sample_index][caption_index], 3000)
@@ -103,27 +103,17 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
     # (to simplify, here we assume a batch of size 1).
     stop_condition = False
     decoded_sentence = ''
-
+    formatted_sentence = ''
     while not stop_condition:
         output_tokens, h, c = decoder_model.predict(
             [target_seq, input_seq] + states_value)
         # Sample a token
-        print(np.argmax(output_tokens[0][0]))
-        print(np.argmax(output_tokens[0][1]))
-        print(np.argmax(output_tokens[0][2]))
-        print(np.argmax(output_tokens[0][3]))
-        print(np.argmax(output_tokens[0][4]))
-        print(np.argmax(output_tokens[0][5]))
-        print(np.argmax(output_tokens[0][6]))
-        sampled_token_index = np.argmax(output_tokens[0, 0, :])
+        sampled_token_index = np.argmax(output_tokens[0, -1, :])
         sampled_char = idxtoword[sampled_token_index]
 
-        if sampled_char == 'eos':
-            print('reached: eos')
-            decoded_sentence += '.'
-        else:
-            decoded_sentence += sampled_char + ' '
-
+        if sampled_char != 'eos':
+            formatted_sentence += sampled_char + ' '
+        decoded_sentence += sampled_char
         # Exit condition: either hit max length
         # or find stop character.
         if (sampled_char == 'eos' or len(decoded_sentence) > padded_length):
@@ -137,7 +127,7 @@ def decode_sequence(input_seq, wordtoidx, idxtoword, encoder_model, decoder_mode
         # Update states
         states_value = [h, c]
 
-    return decoded_sentence
+    return formatted_sentence
 
 def test(encoder_model, decoder_model):
 
