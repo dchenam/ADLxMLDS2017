@@ -60,7 +60,7 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
 
             yield [batch_encoder_input, batch_decoder_input], batch_decoder_output
 
-    checkpoint = ModelCheckpoint(filepath='/models/best.h5', verbose=1, save_best_only=True)
+    checkpoint = ModelCheckpoint(filepath='/models/best.hdf5', verbose=1, save_best_only=True)
 
     import time
     start_time = time.time()
@@ -76,7 +76,7 @@ def train(model, data, max_length=3000, padded_length=44, batch_size=32, epochs=
 
     print(str(seconds / 60) + " minutes")
 
-    model.save_weights('models/seq2seq.h5', by_name=True)
+    model.save_weights('models/seq2seq.h5')
 
     return model
 
