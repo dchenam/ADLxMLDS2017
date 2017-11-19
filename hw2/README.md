@@ -1,4 +1,4 @@
--Keras 2.0.9
--Tensorflow 1.4
--Numpy 1.13.3
--Pandas 0.20.3
+- Keras 2.0.9
+- Tensorflow 1.4
+- Numpy 1.13.3
+- Pandas 0.20.3
