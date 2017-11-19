@@ -24,11 +24,8 @@ def inference_model(max_length=3000, hidden_units=256):
     encoder_states = [state_h, state_c]
 
     decoder_input = Input(shape=(1, max_length), name='decoder_input')
-    repeat_input = RepeatVector(1, name='repeat_encoder_output')(encoder_output)
-    concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, repeat_input])
-
-    decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm', implementation=2)
-    decoder_output, _, _ = decoder_lstm(concated_input, initial_state=encoder_states)
+    decoder_lstm = LSTM(hidden_units, return_sequences=True, return_state=True, name='decoder_lstm')
+    #decoder_output, _, _ = decoder_lstm(decoder_input, initial_state=encoder_states)
     decoder_dense = Dense(max_length, activation='softmax', name='decoder_dense')
 
     # ----Decoding Inference Model------#
@@ -36,6 +33,9 @@ def inference_model(max_length=3000, hidden_units=256):
     decoder_state_input_h = Input(shape=(hidden_units,))
     decoder_state_input_c = Input(shape=(hidden_units,))
     decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
+
+    repeat_input = RepeatVector(1, name='repeat_encoder_output')(encoder_output)
+    concated_input = Concatenate(axis=-1, name='concated_input')([decoder_input, repeat_input])
 
     decoder_output, state_h, state_c = decoder_lstm(
         concated_input, initial_state=decoder_states_inputs)
@@ -66,15 +66,12 @@ def train(model, data, batch_size, epochs):
                 batch_encoder_input[i] = features[sample_index]
                 batch_decoder_input[i] = to_categorical(shifted_labels[sample_index][caption_index], 3000)
                 batch_decoder_output[i] = to_categorical(labels[sample_index][caption_index], 3000)
-
                 sample_index += 1
 
                 if sample_index >= x_train_size:
                     sample_index = 0
 
             yield [batch_encoder_input, batch_decoder_input], batch_decoder_output
-
-    checkpoint = ModelCheckpoint(filepath='models/best.hdf5', verbose=0, save_best_only=True)
 
     import time
     start_time = time.time()
@@ -85,7 +82,6 @@ def train(model, data, batch_size, epochs):
         epochs=epochs,
         validation_data=data_generator(x_test, y_test, y_test_shift, batch_size=batch_size),
         validation_steps=1450/batch_size,
-        callbacks=[checkpoint],
         verbose=1)
     end_time = time.time()
     seconds = (end_time - start_time)
@@ -117,7 +113,7 @@ def decode_sequence(input_seq, encoder_model, decoder_model, wordtoidx, idxtowor
         sampled_token_index = np.argmax(output_tokens[0, -1, :])
         sampled_char = idxtoword[sampled_token_index]
 
-        if sampled_char != 'eos':
+        if sampled_char != 'eos' and sampled_char != 'pad':
             formatted_sentence += sampled_char + ' '
         decoded_sentence += sampled_char
         # Exit condition: either hit max length
