@@ -102,7 +102,7 @@ def load_data(data_dir='MLDS_hw2_data/', type='train', include='train_data', id_
             np.save('idx_test.npy', idx)
             np.save('x_test.npy', normalized_feat)
     else:
-        idx, normalized_feat, sorted_label = get_data(data_dir, 'test', id_list)
+        idx, normalized_feat, sorted_label = get_data(data_dir, type, id_list)
         np.save('idx_' + type + '.npy', idx)
         np.save('x_' + type + '.npy', normalized_feat)
 
