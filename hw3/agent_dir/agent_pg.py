@@ -45,10 +45,15 @@ class Agent_PG(Agent):
         self.learning_rate = 1e-4
         self.gamma = 0.99  # discount factor for reward
         self.decay_rate = 0.99  # decay factor for RMSProp leaky sum of grad^2
-        self.epochs = 200
+        self.epochs = 10000
         self.env = env
         self.policy = Policy().cuda()
         self.optimizer = optim.RMSprop(self.policy.parameters(), lr=self.learning_rate, weight_decay=self.decay_rate)
+        if args.resume:
+            if os.path.isfile('pg_params.pkl'):
+                print('loading trained model')
+                self.policy.load_state_dict(torch.load('pg_params.pkl'))
+
         if args.test_pg:
             if os.path.isfile('pg_params.pkl'):
                 print('loading trained model')
@@ -125,6 +130,7 @@ class Agent_PG(Agent):
             # Save model in every 50 episode
             if i_episode % 50 == 0:
                 print('ep %d: model saving...' % (i_episode))
+                torch.save(self.optimizer.state_dict(), 'pg_optim.pkl')
                 torch.save(self.policy.state_dict(), 'pg_params.pkl')
 
     def make_action(self, observation, test=True):
