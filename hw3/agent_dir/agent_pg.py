@@ -37,7 +37,6 @@ class Policy:
 
         optimizer = tf.train.AdamOptimizer(self.learning_rate)
         self.train_op = optimizer.minimize(self.loss)
-
         tf.global_variables_initializer().run()
 
         self.saver = tf.train.Saver()
@@ -95,7 +94,7 @@ class Agent_PG(Agent):
         # hyperparameters
         self.hidden_units = 200  # number of hidden layer neurons
         self.batch_size = 5  # every how many episodes to do a param update?
-        self.learning_rate = 1e-4
+        self.learning_rate = 5e-4
         self.gamma = 0.99  # discount factor for reward
         self.decay_rate = 0.99  # decay factor for RMSProp leaky sum of grad^2
         self.epochs = 10000
@@ -113,50 +112,63 @@ class Agent_PG(Agent):
         """
         pass
 
-    def finish_episode(self, batch_state_action_reward_tuples):
-        states, actions, rewards = zip(*batch_state_action_reward_tuples)
+    def discount_rewards(self, rewards):
         R = 0
         discount_rewards = []
-        #Discount Rewards
+        # Discount Rewards
         for r in rewards[::-1]:
+            if r != 0: R = 0  # reset the sum, after someone scores a point
             R = r + self.gamma * R
             discount_rewards.insert(0, R)
-        #Normalize Rewards
-        discount_rewards = (discount_rewards - np.mean(discount_rewards)) / (np.std(discount_rewards) + np.finfo(np.float32).eps)
-        print(discount_rewards)
-        batch_state_action_reward_tuples = list(zip(states, actions, discount_rewards))
+        # Normalize Rewards
+        discount_rewards -= np.mean(discount_rewards)
+        discount_rewards /= np.std(discount_rewards) + np.finfo(np.float32).eps
+        return discount_rewards
+
+    def finish_episode(self, states, actions, rewards, batch_rewards):
+        batch_state_action_reward_tuples = list(zip(states, actions, batch_rewards))
         self.policy.train(batch_state_action_reward_tuples)
+        del states[:]
+        del actions[:]
+        del rewards[:]
+        del batch_rewards[:]
 
     def train(self):
         """
         Implement your training algorithm here
         """
         running_reward = None
-        batch_state_action_reward_tuples = []
+        #batch_state_action_reward_tuples = []
+        states, actions, rewards, batch_rewards = [], [], [], []
         for i_episode in count(1):
             reward_sum = 0
             observation = self.env.reset()
             prev_state = prepro(observation)  # To compute difference frame
+            action = self.env.action_space.sample()
+            observation, _, _, _ = self.env.step(action)
+            state = prepro(observation)
             for t in range(self.epochs):
-                state = prepro(observation)
                 state_delta = state - prev_state
                 prev_state = state
                 up_probability = self.policy.forward_pass(state_delta)[0]
                 if np.random.uniform() < up_probability:
-                    action = 2
+                    action = 1
                 else:
-                    action = 3
+                    action = 2
                 #Gym 2 is UP 3 is DOWN
-                observation, reward, done, _ = self.env.step(action)
+                observation, reward, done, _ = self.env.step(action + 1)
+                state = prepro(observation)
                 reward_sum += reward
-
-                #up_probability = self.policy.forward_pass(state_delta)[0]
-                batch_state_action_reward_tuples.append((state_delta, (action - 1), reward))
+                states.append(state_delta)
+                actions.append(action - 1)
+                rewards.append(reward)
+                #batch_state_action_reward_tuples.append((state_delta, (action - 1), reward))
                 if done:
+                    discount_rewards = self.discount_rewards(rewards)
+                    batch_rewards += discount_rewards.tolist()
                     # tracking log
                     running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
                     print('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
-                    reward_sum = 0
                     break
 
                 if reward != 0:
@@ -165,8 +177,7 @@ class Agent_PG(Agent):
             # use policy gradient update model weights
             if i_episode % self.batch_size == 0:
                 print('ep %d: policy network parameters updating...' % (i_episode))
-                self.finish_episode(batch_state_action_reward_tuples)
-                batch_state_action_reward_tuples = []
+                self.finish_episode(states, actions, rewards, batch_rewards)
 
             # Save model in every 50 episode
             if i_episode % 50 == 0:
