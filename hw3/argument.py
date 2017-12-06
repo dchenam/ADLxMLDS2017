@@ -11,4 +11,5 @@ def add_arguments(parser):
                         help='discount factor (default: 0.99)')
     parser.add_argument('--seed', type=int, default=87, metavar='N',
                         help='random seed (default: 87)')
+    parser.add_argument('--resume', action='store_true', help='whether to resume training from existing weights')
     return parser
