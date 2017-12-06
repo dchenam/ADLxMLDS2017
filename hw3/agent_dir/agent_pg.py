@@ -52,6 +52,7 @@ class Agent_PG(Agent):
         if args.resume:
             if os.path.isfile('pg_params.pkl'):
                 print('loading trained model')
+                self.optimizer.load_state_dict(torch.load('pg_optim.pkl'))
                 self.policy.load_state_dict(torch.load('pg_params.pkl'))
 
         if args.test_pg:
