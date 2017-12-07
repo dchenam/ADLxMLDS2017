@@ -30,12 +30,15 @@ class Policy:
             activation=tf.sigmoid,
             kernel_initializer=tf.contrib.layers.xavier_initializer())
 
+        # self.loss = tf.nn.l2_loss(self.sampled_actions - self.up_probability)
+        optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        # tf_grads = optimizer.compute_gradients(self.loss, var_list=tf.trainable_variables(), grad_loss=self.advantage)
         self.loss = tf.losses.log_loss(
             labels=self.sampled_actions,
             predictions=self.up_probability,
             weights=self.advantage)
 
-        optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        #self.train_op = optimizer.apply_gradients(tf_grads)
         self.train_op = optimizer.minimize(self.loss)
         tf.global_variables_initializer().run()
 
@@ -93,7 +96,7 @@ class Agent_PG(Agent):
 
         # hyperparameters
         self.hidden_units = 200  # number of hidden layer neurons
-        self.batch_size = 5  # every how many episodes to do a param update?
+        self.batch_size = 1  # every how many episodes to do a param update?
         self.learning_rate = 5e-4
         self.gamma = 0.99  # discount factor for reward
         self.decay_rate = 0.99  # decay factor for RMSProp leaky sum of grad^2
@@ -125,8 +128,8 @@ class Agent_PG(Agent):
         discount_rewards /= np.std(discount_rewards) + np.finfo(np.float32).eps
         return discount_rewards
 
-    def finish_episode(self, states, actions, rewards, batch_rewards):
-        batch_state_action_reward_tuples = list(zip(states, actions, batch_rewards))
+    def parameter_update(self, states, actions, rewards, batch_rewards):
+        batch_state_action_reward_tuples = list(zip(states, actions, rewards))
         self.policy.train(batch_state_action_reward_tuples)
         del states[:]
         del actions[:]
@@ -142,42 +145,50 @@ class Agent_PG(Agent):
         states, actions, rewards, batch_rewards = [], [], [], []
         for i_episode in count(1):
             reward_sum = 0
-            observation = self.env.reset()
-            prev_state = prepro(observation)  # To compute difference frame
+            done = False
+            step_n = 1
+            round_n = 1
+            prev_state = self.env.reset()
+            prev_state = prepro(prev_state)
             action = self.env.action_space.sample()
-            observation, _, _, _ = self.env.step(action)
-            state = prepro(observation)
-            for t in range(self.epochs):
+            state, _, _, _ = self.env.step(action)
+            state = prepro(state)
+            while not done:
                 state_delta = state - prev_state
                 prev_state = state
                 up_probability = self.policy.forward_pass(state_delta)[0]
                 if np.random.uniform() < up_probability:
-                    action = 1
+                    action = 0
                 else:
-                    action = 2
+                    action = 1
                 #Gym 2 is UP 3 is DOWN
-                observation, reward, done, _ = self.env.step(action + 1)
-                state = prepro(observation)
+                state, reward, done, _ = self.env.step(action + 2)
+                state = prepro(state)
                 reward_sum += reward
+                step_n += 1
                 states.append(state_delta)
-                actions.append(action - 1)
+                actions.append(action)
                 rewards.append(reward)
-                #batch_state_action_reward_tuples.append((state_delta, (action - 1), reward))
-                if done:
-                    discount_rewards = self.discount_rewards(rewards)
-                    batch_rewards += discount_rewards.tolist()
-                    # tracking log
-                    running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-                    print('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
-                    break
-
+                if reward == -1:
+                    print("Round %d: %d time steps; lost..." % (round_n, t))
+                elif reward == +1:
+                    print("Round %d: %d time steps; won!" % (round_n, t))
                 if reward != 0:
-                    print('ep %d: game finished, reward: %f, steps: %d' % (i_episode, reward, t) + ('' if reward == -1 else ' !!!!!!!'))
+                    round_n += 1
+                    step_n = 0
+                        # if reward != 0:
+                #     print('ep %d: game finished, reward: %f, steps: %d' % (i_episode, reward, t) + ('' if reward == -1 else ' !!!!!!!'))
+            discount_rewards = self.discount_rewards(rewards)
+            #batch_rewards += discount_rewards.tolist()
+            # tracking log
+            print("Episode %d finished after %d rounds" % (i_episode, round_n))
+            running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
+            print('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
 
             # use policy gradient update model weights
             if i_episode % self.batch_size == 0:
                 print('ep %d: policy network parameters updating...' % (i_episode))
-                self.finish_episode(states, actions, rewards, batch_rewards)
+                self.parameter_update(states, actions, rewards, batch_rewards)
 
             # Save model in every 50 episode
             if i_episode % 50 == 0:
