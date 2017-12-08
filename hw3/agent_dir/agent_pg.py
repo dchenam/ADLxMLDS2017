@@ -2,69 +2,84 @@ from agent_dir.agent import Agent
 import gym
 import os
 import numpy as np
-from itertools import count
+import pickle
 
 import tensorflow as tf
 
 class Policy:
-    def __init__(self, hidden_layer_size, learning_rate, checkpoints_dir):
-        self.learning_rate = learning_rate
-
-        self.sess = tf.InteractiveSession()
-
+    def __init__(self, hidden_layer_size, learning_rate, n_actions, checkpoints_dir):
         self.observations = tf.placeholder(tf.float32, [None, 6400])
-        # +1 for up, -1 for down
-        self.sampled_actions = tf.placeholder(tf.float32, [None, 1])
-        self.advantage = tf.placeholder(
-            tf.float32, [None, 1], name='advantage')
+        self.sampled_actions = tf.placeholder(tf.float32, [None, n_actions])
+        self.advantage = tf.placeholder(tf.float32, [None, 1])
 
-        h = tf.layers.dense(
-            self.observations,
-            units=hidden_layer_size,
-            activation=tf.nn.relu,
-            kernel_initializer=tf.contrib.layers.xavier_initializer())
+        # h = tf.layers.dense(
+        #     self.observations,
+        #     units=hidden_layer_size,
+        #     activation=tf.nn.relu,
+        #     kernel_initializer=tf.contrib.layers.xavier_initializer())
+        #
+        # self.action_probability = tf.layers.dense(
+        #     h,
+        #     units=n_actions,
+        #     activation=tf.nn.softmax,
+        #     kernel_initializer=tf.contrib.layers.xavier_initializer())
 
-        self.up_probability = tf.layers.dense(
-            h,
-            units=1,
-            activation=tf.sigmoid,
-            kernel_initializer=tf.contrib.layers.xavier_initializer())
+        self.tf_model = {}
+        with tf.variable_scope('layer_one', reuse=False):
+            xavier_l1 = tf.truncated_normal_initializer(mean=0, stddev=1. / np.sqrt(6400), dtype=tf.float32)
+            self.tf_model['W1'] = tf.get_variable("W1", [6400, hidden_layer_size], initializer=xavier_l1)
+        with tf.variable_scope('layer_two', reuse=False):
+            xavier_l2 = tf.truncated_normal_initializer(mean=0, stddev=1. / np.sqrt(hidden_layer_size), dtype=tf.float32)
+            self.tf_model['W2'] = tf.get_variable("W2", [hidden_layer_size, n_actions], initializer=xavier_l2)
 
-        # self.loss = tf.nn.l2_loss(self.sampled_actions - self.up_probability)
-        optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        # tf_discounted_epr = self.tf_discount_rewards(self.advantage)
+        # tf_mean, tf_variance = tf.nn.moments(tf_discounted_epr, [0], shift=None, name="reward_moments")
+        # tf_discounted_epr -= tf_mean
+        # tf_discounted_epr /= tf.sqrt(tf_variance + 1e-6)
+
+        self.action_prob = self.forward_pass(self.observations)
+        loss = tf.nn.l2_loss(self.sampled_actions - self.action_prob)
+        optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=0.99)
+        tf_grads = optimizer.compute_gradients(loss, var_list=tf.trainable_variables(), grad_loss=self.advantage)
+        self.train_op = optimizer.apply_gradients(tf_grads)
+
         # tf_grads = optimizer.compute_gradients(self.loss, var_list=tf.trainable_variables(), grad_loss=self.advantage)
-        self.loss = tf.losses.log_loss(
-            labels=self.sampled_actions,
-            predictions=self.up_probability,
-            weights=self.advantage)
-
-        #self.train_op = optimizer.apply_gradients(tf_grads)
-        self.train_op = optimizer.minimize(self.loss)
+        # self.loss = tf.losses.log_loss(
+        #     labels=self.sampled_actions,
+        #     predictions=self.up_probability,
+        #     weights=self.advantage)
+        #
+        # #self.train_op = optimizer.apply_gradients(tf_grads)
+        # self.train_op = optimizer.minimize(self.loss)
+        self.sess = tf.InteractiveSession()
         tf.global_variables_initializer().run()
-
-        self.saver = tf.train.Saver()
+        self.saver = tf.train.Saver(tf.global_variables())
+        self.checkpoint_path = checkpoints_dir
         self.checkpoint_file = os.path.join(checkpoints_dir,
                                             'policy_network.ckpt')
 
-    def load_checkpoint(self):
-        print("Loading checkpoint...")
-        self.saver.restore(self.sess, self.checkpoint_file)
-
-    def save_checkpoint(self):
-        print("Saving checkpoint...")
-        self.saver.save(self.sess, self.checkpoint_file)
+    def tf_discount_rewards(self, tf_r):  # tf_r ~ [game_steps,1]
+        discount_f = lambda a, v: a * 0.99 + v;
+        tf_r_reverse = tf.scan(discount_f, tf.reverse(tf_r, [True, False]))
+        tf_discounted_r = tf.reverse(tf_r_reverse, [True, False])
+        return tf_discounted_r
 
     def forward_pass(self, observations):
-        up_probability = self.sess.run(
-            self.up_probability,
-            feed_dict={self.observations: observations.reshape([1, -1])})
-        return up_probability
+        # action_prob = self.sess.run(
+        #     self.action_probability,
+        #     feed_dict={self.observations: observations.reshape([1, -1])})
+        # return action_prob
+        h = tf.matmul(observations, self.tf_model['W1'])
+        h = tf.nn.relu(h)
+        logp = tf.matmul(h, self.tf_model['W2'])
+        p = tf.nn.softmax(logp)
+        return p
 
-    def train(self, state_action_reward_tuples):
-        print("Training with %d (state, action, reward) tuples" %
-              len(state_action_reward_tuples))
+    def train(self, states, actions, rewards):
+        #print("Training with %d (state, action, reward) tuples" %
+        #      len(state_action_reward_tuples))
 
-        states, actions, rewards = zip(*state_action_reward_tuples)
+        #states, actions, rewards = zip(*state_action_reward_tuples)
         states = np.vstack(states)
         actions = np.vstack(actions)
         rewards = np.vstack(rewards)
@@ -97,16 +112,26 @@ class Agent_PG(Agent):
         # hyperparameters
         self.hidden_units = 200  # number of hidden layer neurons
         self.batch_size = 1  # every how many episodes to do a param update?
-        self.learning_rate = 5e-4
+        self.learning_rate = 1e-3
         self.gamma = 0.99  # discount factor for reward
         self.decay_rate = 0.99  # decay factor for RMSProp leaky sum of grad^2
-        self.epochs = 10000
+        self.n_actions = 3
+
+        #Game space
         self.env = env
+        self.i_episode = 0
+        self.prev_state = None
+        self.running_reward = None
+        self.states, self.actions, self.rewards = [], [], []
+        self.reward_history = []
+
+
         if not os.path.exists('./checkpoints'):
             os.makedirs('./checkpoints')
-        self.policy = Policy(hidden_layer_size=self.hidden_units, learning_rate=self.learning_rate, checkpoints_dir='./checkpoints/')
+        self.policy = Policy(hidden_layer_size=self.hidden_units, learning_rate=self.learning_rate,
+                             n_actions=self.n_actions, checkpoints_dir='./checkpoints/')
         if args.resume or args.test_pg:
-            self.policy.load_checkpoint()
+            self.load_checkpoint()
 
     def init_game_setting(self):
         """
@@ -126,74 +151,80 @@ class Agent_PG(Agent):
         # Normalize Rewards
         discount_rewards -= np.mean(discount_rewards)
         discount_rewards /= np.std(discount_rewards) + np.finfo(np.float32).eps
-        return discount_rewards
+        return discount_rewards.tolist()
 
-    def parameter_update(self, states, actions, rewards, batch_rewards):
-        batch_state_action_reward_tuples = list(zip(states, actions, rewards))
-        self.policy.train(batch_state_action_reward_tuples)
-        del states[:]
-        del actions[:]
-        del rewards[:]
-        del batch_rewards[:]
+    def parameter_update(self):
+        self.rewards = self.discount_rewards(self.rewards)
+        #batch_state_action_reward_tuples = list(zip(states, actions, rewards))
+        self.policy.train(self.states, self.actions, self.rewards)
+        del self.states[:]
+        del self.actions[:]
+        del self.rewards[:]
 
     def train(self):
-        """
-        Implement your training algorithm here
-        """
-        running_reward = None
-        #batch_state_action_reward_tuples = []
-        states, actions, rewards, batch_rewards = [], [], [], []
-        for i_episode in count(1):
-            reward_sum = 0
+        while True:
+            #Reset Episode Parameters
             done = False
-            step_n = 1
+            reward_sum = 0
             round_n = 1
-            prev_state = self.env.reset()
-            prev_state = prepro(prev_state)
-            action = self.env.action_space.sample()
-            state, _, _, _ = self.env.step(action)
-            state = prepro(state)
+            state = self.env.reset()
             while not done:
-                state_delta = state - prev_state
-                prev_state = state
-                up_probability = self.policy.forward_pass(state_delta)[0]
-                if np.random.uniform() < up_probability:
-                    action = 0
-                else:
-                    action = 1
-                #Gym 2 is UP 3 is DOWN
-                state, reward, done, _ = self.env.step(action + 2)
+                #Compute State Delta
                 state = prepro(state)
+                state_delta = state - self.prev_state if self.prev_state is not None else np.zeros_like(state)
+                self.prev_state = state
+
+                #Sample Stochastic Policy
+                feed = {self.policy.observations: state_delta.reshape([1, -1])}
+                action_prob = self.policy.sess.run(self.policy.action_prob, feed)[0]
+                # action_prob = self.policy.forward_pass(state_delta)[0]
+                action = np.random.choice(self.n_actions, p=action_prob)
+                label = np.zeros_like(action_prob)
+                label[action] = 1
+
+                # Step Environment and Update Reward
+                state, reward, done, _ = self.env.step(action + 1)
                 reward_sum += reward
-                step_n += 1
-                states.append(state_delta)
-                actions.append(action)
-                rewards.append(reward)
-                if reward == -1:
-                    print("Round %d: %d time steps; lost..." % (round_n, t))
-                elif reward == +1:
-                    print("Round %d: %d time steps; won!" % (round_n, t))
-                if reward != 0:
-                    round_n += 1
-                    step_n = 0
-                        # if reward != 0:
-                #     print('ep %d: game finished, reward: %f, steps: %d' % (i_episode, reward, t) + ('' if reward == -1 else ' !!!!!!!'))
-            discount_rewards = self.discount_rewards(rewards)
-            #batch_rewards += discount_rewards.tolist()
-            # tracking log
-            print("Episode %d finished after %d rounds" % (i_episode, round_n))
-            running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-            print('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
 
-            # use policy gradient update model weights
-            if i_episode % self.batch_size == 0:
-                print('ep %d: policy network parameters updating...' % (i_episode))
-                self.parameter_update(states, actions, rewards, batch_rewards)
+                # Record Game History
+                self.states.append(state_delta)
+                self.actions.append(label)
+                self.rewards.append(reward)
+                round_n += 1
 
+            # Logging
+            self.running_reward = reward_sum if self.running_reward is None else self.running_reward * 0.99 + reward_sum * 0.01
+            self.reward_history.append(self.running_reward)
+            if self.i_episode % 10 == 0:
+                print(
+                    'ep {}: reward: {}, mean reward: {:3f}'.format(self.i_episode, reward_sum, self.running_reward))
+            else:
+                print('\tep {}: finished after {} rounds, reward: {}'.format(self.i_episode, round_n, reward_sum))
+
+
+            # Update Parameter
+            if self.i_episode % self.batch_size == 0:
+                #print('ep %d: policy network parameters updating...' % (self.i_episode))
+                self.parameter_update()
             # Save model in every 50 episode
-            if i_episode % 50 == 0:
-                print('ep %d: model saving...' % (i_episode))
-                self.policy.save_checkpoint()
+            if self.i_episode % 50 == 0:
+                print('ep %d: model saving...' % (self.i_episode))
+                self.save_checkpoint()
+            self.i_episode += 1
+
+    def load_checkpoint(self):
+        print("Loading checkpoint...")
+        ckpt = tf.train.get_checkpoint_state(self.policy.checkpoint_path)
+        load_path = ckpt.model_checkpoint_path
+        self.policy.saver.restore(self.policy.sess, load_path)
+        self.policy.saver = tf.train.Saver(tf.global_variables())
+        self.reward_history = pickle.load(open('./reward_history.p', 'rb'))
+        self.i_episode = int(load_path.split('-')[-1])
+
+    def save_checkpoint(self):
+        print("Saving checkpoint...")
+        self.policy.saver.save(self.policy.sess, self.policy.checkpoint_file, global_step=self.i_episode)
+        pickle.dump(self.reward_history, open('./reward_history.p', 'wb'))
 
     def make_action(self, observation, test=True):
         """
@@ -207,11 +238,14 @@ class Agent_PG(Agent):
             action: int
                 the predicted action from trained model
         """
+        # Compute State Delta
         state = prepro(observation)
-        up_probability = self.policy.forward_pass(state)[0]
-        if np.random.uniform() < up_probability:
-            action = 2
-        else:
-            action = 3
-        return action.data
+        state_delta = state - self.prev_state if self.prev_state is not None else np.zeros_like(state)
+        self.prev_state = state
+
+        # Sample Stochastic Policy
+        action_prob = self.policy.forward_pass(state_delta)[0]
+        print(action_prob)
+        action = np.random.choice(self.n_actions, p=action_prob)
+        return action + 1
 
