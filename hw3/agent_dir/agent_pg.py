@@ -19,39 +19,21 @@ class Policy:
         self.rewards = []
 
         with tf.name_scope('inputs'):
-            self.observations = tf.placeholder(tf.float32, [None, 80, 80, 1])
+            self.observations = tf.placeholder(tf.float32, [None, 6400])
             self.sampled_actions = tf.placeholder(tf.int32, [None])
             self.advantage = tf.placeholder(tf.float32, [None])
 
-        conv1 = tf.layers.conv2d(
-            self.observations,
-            filters=16,
-            kernel_size=(8, 8),
-            strides=(4, 4),
-            activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(mean=0, stddev=0.3))
-
-        conv2 = tf.layers.conv2d(
-            conv1,
-            filters=32,
-            kernel_size=(4, 4),
-            strides=(2, 2),
-            activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(mean=0, stddev=0.3))
-
-        fc1 = tf.contrib.layers.flatten(conv2)
-
         fc1 = tf.layers.dense(
-            fc1,
-            units=128,
+            self.observations,
+            units=200,
             activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(mean=0, stddev=0.3))
+            kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=1./np.sqrt(6400)))
 
         logits = tf.layers.dense(
             fc1,
             units=n_actions,
             activation=None,
-            kernel_initializer=tf.random_normal_initializer(mean=0, stddev=0.3)
+            kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=1./np.sqrt(200))
         )
 
         self.prob = tf.nn.softmax(logits)
@@ -75,7 +57,7 @@ class Policy:
     def sample(self, observations):
         prob = self.sess.run(
             self.prob,
-            feed_dict={self.observations: np.reshape(observations, [-1, 80, 80, 1])})
+            feed_dict={self.observations: np.reshape(observations, [1, -1])})
         action = np.random.choice(range(prob.shape[1]), p=prob.ravel())
         return action
 
@@ -99,9 +81,6 @@ class Policy:
 
     def train(self):
         discount_reward = self.discount_rewards()
-        #self.states = np.vstack(self.states) #shape[None, 6400]
-        #self.actions = np.array(self.actions) #shape[None, ]
-        #self.rewards = discount_reward #shape[None, ]
         feed_dict = {
             self.observations: np.vstack(self.states),
             self.sampled_actions: np.array(self.actions),
