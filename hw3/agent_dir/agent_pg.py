@@ -132,11 +132,11 @@ class Agent_PG(Agent):
 
     def train(self):
         time_step = 0
+        reward_sum = 0
         while True:
             #Reset Episode Parameters
             done = False
             reward_epsiode = 0
-            reward_sum = 0
             round_n = 1
             state = self.env.reset()
             while not done:
@@ -166,12 +166,11 @@ class Agent_PG(Agent):
                 self.reward_history.append([time_step, average_reward])
             # Logging
             self.running_reward = reward_epsiode if self.running_reward is None else self.running_reward * 0.99 + reward_epsiode * 0.01
-            #self.reward_history.append(reward_sum)
             if self.i_episode % 10 == 0:
                 print(
-                    'ep {}: reward: {}, mean reward: {:3f}'.format(self.i_episode, reward_sum, self.running_reward))
+                    'ep {}: reward: {}, mean reward: {:3f}'.format(self.i_episode, reward_epsiode, self.running_reward))
             else:
-                print('\tep {}: finished after {} rounds, reward: {}'.format(self.i_episode, round_n, reward_sum))
+                print('\tep {}: finished after {} rounds, reward: {}'.format(self.i_episode, round_n, reward_epsiode))
 
             # Save model in every 50 episode
             if self.i_episode % 50 == 0:
