@@ -47,8 +47,8 @@ class Policy:
             optimizer = tf.train.AdamOptimizer(learning_rate)
             self.train_op = optimizer.minimize(loss)
 
-        self.sess = tf.Session()
-        self.sess.run(tf.global_variables_initializer())
+        self.sess = tf.InteractiveSession()
+        tf.global_variables_initializer().run()
         self.saver = tf.train.Saver(tf.global_variables())
         self.checkpoint_path = checkpoints_dir
         self.checkpoint_file = os.path.join(checkpoints_dir,
@@ -58,7 +58,7 @@ class Policy:
         prob = self.sess.run(
             self.prob,
             feed_dict={self.observations: np.reshape(observations, [1, -1])})
-        action = np.random.choice(range(prob.shape[1]), p=prob.ravel())
+        action = np.random.choice(3, p=prob.ravel())
         return action
 
     def store_transition(self, s, a, r):
@@ -153,6 +153,9 @@ class Agent_PG(Agent):
                 reward_sum += reward
                 round_n += 1
                 state = next_state
+
+            #Don't Forget this Line T_T
+            self.policy.train()
 
             # Logging
             self.running_reward = reward_sum if self.running_reward is None else self.running_reward * 0.99 + reward_sum * 0.01
