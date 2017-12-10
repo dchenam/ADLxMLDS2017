@@ -47,7 +47,7 @@ class Policy:
             optimizer = tf.train.AdamOptimizer(learning_rate)
             self.train_op = optimizer.minimize(loss)
 
-        self.sess = tf.InteractiveSession()
+        self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver(tf.global_variables())
         self.checkpoint_path = checkpoints_dir
