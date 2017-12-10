@@ -9,8 +9,8 @@ import tensorflow as tf
 class Policy:
     def __init__(self, learning_rate, decay_rate, n_actions, checkpoints_dir):
         self.observations = tf.placeholder(tf.float32, [None, 80, 80, 1])
-        self.sampled_actions = tf.placeholder(tf.float32, [None, n_actions])
-        self.advantage = tf.placeholder(tf.float32, [None, 1])
+        self.sampled_actions = tf.placeholder(tf.int32, [None, n_actions])
+        self.advantage = tf.placeholder(tf.float32, [None])
 
         conv1 = tf.layers.conv2d(
             self.observations,
@@ -36,18 +36,16 @@ class Policy:
 
         action_logit = tf.layers.dense(
             fc1,
-            units=n_actions,
-            kernel_initializer=tf.random_normal_initializer())
+            units=n_actions)
 
-        self.action_sample = tf.multinomial(action_logit, 1)[0]
+        self.action_sample = tf.reshape(tf.multinomial(action_logit, 1),[-1])
 
-        self.log_prob = tf.log(tf.nn.softmax(action_logit))
-
-        optimizer = tf.train.RMSPropOptimizer(learning_rate, decay=decay_rate)
-        loss = tf.losses.log_loss(
-            labels=self.sampled_actions,
-            predictions=self.log_prob,
+        loss = tf.losses.softmax_cross_entropy(
+            onehot_labels=self.sampled_actions,
+            logits=action_logit,
             weights=self.advantage)
+
+        optimizer = tf.train.AdamOptimizer(learning_rate)
         self.train_op = optimizer.minimize(loss)
 
         self.sess = tf.InteractiveSession()
@@ -61,12 +59,9 @@ class Policy:
         action = self.sess.run(
             self.action_sample,
             feed_dict={self.observations: np.reshape(observations, (-1, 80, 80, 1))})
-        label = np.array([0, 0 ,0])
-        label[action] = 1
-        return action.tolist()[0], label
+        return action.tolist()[0]
 
     def train(self, states, actions, rewards):
-
         states = np.vstack(states)
         actions = np.vstack(actions)
         rewards = np.vstack(rewards)
@@ -74,7 +69,7 @@ class Policy:
         feed_dict = {
             self.observations: np.reshape(states, (-1, 80, 80, 1)),
             self.sampled_actions: actions,
-            self.advantage: rewards
+            self.advantage: rewards.squeeze(1)
         }
         self.sess.run(self.train_op, feed_dict)
 
@@ -89,7 +84,6 @@ def prepro(I):
 
 class Agent_PG(Agent):
     def __init__(self, env, args):
-
         super(Agent_PG,self).__init__(env)
 
         # hyperparameters
@@ -148,11 +142,13 @@ class Agent_PG(Agent):
             while not done:
                 #Compute State Delta
                 state = prepro(state)
-                state_delta = state - self.prev_state if self.prev_state is not None else np.zeros_like(state)
+                state_delta = state - self.prev_state if self.prev_state is not None else state
                 self.prev_state = state
 
                 #Sample Stochastic Policy
-                action, label = self.policy.sample(state_delta)
+                action = self.policy.sample(state_delta)
+                label = np.array([0, 0, 0])
+                label[action] = 1
 
                 # Step Environment and Update Reward
                 state, reward, done, _ = self.env.step(action + 1)
