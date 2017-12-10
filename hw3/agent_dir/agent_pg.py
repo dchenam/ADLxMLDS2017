@@ -9,44 +9,52 @@ import tensorflow as tf
 class Policy:
     def __init__(self, learning_rate, decay_rate, n_actions, checkpoints_dir):
         self.observations = tf.placeholder(tf.float32, [None, 80, 80, 1])
-        self.sampled_actions = tf.placeholder(tf.int32, [None, n_actions])
+        self.sampled_actions = tf.placeholder(tf.int32, [None])
         self.advantage = tf.placeholder(tf.float32, [None])
 
-        conv1 = tf.layers.conv2d(
+        self.conv1 = tf.layers.conv2d(
             self.observations,
             filters=16,
             kernel_size=(8, 8),
             strides=(4, 4),
             activation=tf.nn.relu)
 
-        conv2 = tf.layers.conv2d(
-            conv1,
+        self.conv2 = tf.layers.conv2d(
+            self.conv1,
             filters=32,
             kernel_size=(4, 4),
             strides=(2, 2),
             activation=tf.nn.relu)
 
-        fc1 = tf.contrib.layers.flatten(conv2)
+        self.fc1 = tf.contrib.layers.flatten(self.conv2)
 
-        fc1 = tf.layers.dense(
-            fc1,
+        self.fc1 = tf.layers.dense(
+            self.fc1,
             units=128,
             activation=tf.nn.relu,
             kernel_initializer=tf.random_normal_initializer())
 
-        action_logit = tf.layers.dense(
-            fc1,
+        self.action_logit = tf.layers.dense(
+            self.fc1,
             units=n_actions)
 
-        self.action_sample = tf.reshape(tf.multinomial(action_logit, 1),[-1])
+        self.action = tf.reshape(tf.multinomial(self.action_logit, 1),[-1])
+        self.log_prob = -tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=self.sampled_actions, logits=self.action_logit)
+        self.loss = -tf.reduce_mean(self.log_prob * self.advantage)
 
-        loss = tf.losses.softmax_cross_entropy(
-            onehot_labels=self.sampled_actions,
-            logits=action_logit,
-            weights=self.advantage)
+        # loss = -tf.losses.softmax_cross_entropy(
+        #     onehot_labels=self.sampled_actions,
+        #     logits=self.action_logit,
+        #     weights=self.advantage)
+
+        # self.log_prob = tf.nn.log_softmax(self.action_logit)
+        # batch_size = tf.shape(self.observations)[0]
+        # self.action_log_prob = self.fancy_slice_2d(self.log_prob, tf.range(batch_size), self.sampled_actions)
+        # loss = -tf.reduce_mean(self.advantage * self.action_log_prob)
 
         optimizer = tf.train.AdamOptimizer(learning_rate)
-        self.train_op = optimizer.minimize(loss)
+        self.train_op = optimizer.minimize(self.loss)
 
         self.sess = tf.InteractiveSession()
         tf.global_variables_initializer().run()
@@ -55,9 +63,17 @@ class Policy:
         self.checkpoint_file = os.path.join(checkpoints_dir,
                                             'policy_network.ckpt')
 
+    def fancy_slice_2d(self, X, inds0, inds1):
+        inds0 = tf.cast(inds0, tf.int64)
+        inds1 = tf.cast(inds1, tf.int64)
+        shape = tf.cast(tf.shape(X), tf.int64)
+        ncols = shape[1]
+        Xflat = tf.reshape(X, [-1])
+        return tf.gather(Xflat, inds0 * ncols + inds1)
+
     def sample(self, observations):
         action = self.sess.run(
-            self.action_sample,
+            self.action,
             feed_dict={self.observations: np.reshape(observations, (-1, 80, 80, 1))})
         return action.tolist()[0]
 
@@ -68,7 +84,7 @@ class Policy:
 
         feed_dict = {
             self.observations: np.reshape(states, (-1, 80, 80, 1)),
-            self.sampled_actions: actions,
+            self.sampled_actions: actions.squeeze(1),
             self.advantage: rewards.squeeze(1)
         }
         self.sess.run(self.train_op, feed_dict)
@@ -142,21 +158,22 @@ class Agent_PG(Agent):
             while not done:
                 #Compute State Delta
                 state = prepro(state)
-                state_delta = state - self.prev_state if self.prev_state is not None else state
-                self.prev_state = state
+                # state_delta = state - self.prev_state if self.prev_state is not None else state
+                # self.prev_state = state
 
                 #Sample Stochastic Policy
-                action = self.policy.sample(state_delta)
-                label = np.array([0, 0, 0])
-                label[action] = 1
+                action = self.policy.sample(state)
+                # label = np.array([0, 0, 0])
+                # label[action] = 1
+
+                self.states.append(state)
 
                 # Step Environment and Update Reward
                 state, reward, done, _ = self.env.step(action + 1)
                 reward_sum += reward
 
                 # Record Game History
-                self.states.append(state_delta)
-                self.actions.append(label)
+                self.actions.append(action)
                 self.rewards.append(reward)
                 round_n += 1
 
