@@ -38,6 +38,7 @@ class DQN:
         self.batch_size = 32
         self.gamma = 0.99
         self.clip_val = 10
+        self.decay_rate = 0.99
 
         self.summary_writer = None
         summary_dir = os.path.join(experiment_dir, "summaries")
@@ -90,13 +91,13 @@ class DQN:
         # Loss = E[(r + gamma * max(Q target) - Q(eval))^2]
         self.loss = tf.reduce_mean(tf.squared_difference(self.q_target, self.q_action, name='td_error'))
 
-        self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate)
+        self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate, self.decay_rate)
         gradients = self.optimizer.compute_gradients(self.loss, var_list=self.e_params)
-        for i, (grad, var) in enumerate(gradients):
-            if grad is not None:
-                gradients[i] = (tf.clip_by_norm(grad, self.clip_val), var)
+        # for i, (grad, var) in enumerate(gradients):
+        #     if grad is not None:
+        #         gradients[i] = (tf.clip_by_norm(grad, self.clip_val), var)
         self.train_op = self.optimizer.apply_gradients(gradients,
-                                                       global_step=tf.contrib.framework.get_global_step())
+                                                       global_step=tf.train.get_global_step())
         # self.train_op = self.optimizer.minimize(self.loss, global_step=tf.contrib.framework.get_global_step())
 
         self.summaries = tf.summary.merge([
@@ -121,7 +122,7 @@ class DQN:
 
         # Perform gradient descent update
         summaries, global_step,  _, loss = sess.run(
-            [self.summaries, tf.contrib.framework.get_global_step(), self.train_op, self.loss],
+            [self.summaries, tf.train.get_global_step(), self.train_op, self.loss],
             feed_dict={
                 self.states: batch_memory.state,
                 self.actions: batch_memory.action,
@@ -145,7 +146,7 @@ class Agent_DQN(Agent):
         self.num_steps = 1e7
         self.num_episodes = 100000
         self.i_episode = 0
-        self.policy_update_freq = 1
+        self.policy_update_freq = 4
         self.target_update_freq = 1000
         self.reward_history = []
         self.valid_actions = [0, 1, 2, 3]
@@ -170,12 +171,12 @@ class Agent_DQN(Agent):
         self.checkpoint_path = self.checkpoints_dir
         self.checkpoint_file = os.path.join(self.checkpoints_dir,
                                             'DQN_network.ckpt')
-        self.total_t = self.sess.run(tf.contrib.framework.get_global_step())
+        self.total_t = self.sess.run(tf.train.get_global_step())
 
         # The epsilon decay schedule
         epsilon_start = 1.0,
-        epsilon_end = 0.1,
-        self.epsilon_decay_steps = 500000
+        epsilon_end = 0.05,
+        self.epsilon_decay_steps = 1000000
         self.epsilons = np.linspace(epsilon_start, epsilon_end, self.epsilon_decay_steps)
 
         if args.resume or args.test_dqn:
@@ -208,7 +209,6 @@ class Agent_DQN(Agent):
             reward_epsiode = 0
             state = self.env.reset()
             loss = None
-            step_summary = tf.Summary()
             for t in count(1):
                 epsilon = self.epsilons[min(self.total_t, self.epsilon_decay_steps - 1)]
                 if self.total_t % self.target_update_freq == 0:
@@ -229,34 +229,36 @@ class Agent_DQN(Agent):
                 stats.episode_rewards[self.i_episode] += reward
                 stats.episode_lengths[self.i_episode] = t
 
-                #if self.total_t % self.policy_update_freq == 0:
-                loss = self.dqn.train(self.sess, self.replay_memory)
+                if self.total_t % self.policy_update_freq == 0:
+                    loss = self.dqn.train(self.sess, self.replay_memory)
 
                 reward_epsiode += reward
                 state = next_state
                 self.total_t += 1
-                step_summary.value.add(simple_value=reward, tag="step/reward")
                 if done:
                     break
             running_reward = reward_epsiode if running_reward is None else running_reward * 0.99 + reward_epsiode * 0.01
             print("\rSteps {} @ Episode {}/{}, reward_episode: {}, running_reward: {:3f}".format(
                 self.total_t, self.i_episode, self.num_episodes, reward_epsiode, running_reward), end="")
             sys.stdout.flush()
+
+            if self.i_episode % 30 == 0:
+                average_reward = reward_sum / 30
+                reward_sum = 0
+                step_summary = tf.Summary()
+                step_summary.value.add(simple_value=average_reward, tag="30_episode/reward")
+                self.dqn.summary_writer.add_summary(step_summary, self.total_t)
+                self.reward_history.append([self.total_t, average_reward])
+
             # Logging
             episode_summary = tf.Summary()
             episode_summary.value.add(simple_value=epsilon, tag="episode/epsilon")
             episode_summary.value.add(simple_value=stats.episode_rewards[self.i_episode], tag="episode/reward")
             episode_summary.value.add(simple_value=stats.episode_lengths[self.i_episode], tag="episode/length")
             self.dqn.summary_writer.add_summary(episode_summary, self.i_episode)
-            self.dqn.summary_writer.add_summary(step_summary, self.total_t)
             self.dqn.summary_writer.flush()
 
             reward_sum += reward_epsiode
-
-            if self.i_episode % 30 == 0:
-                average_reward = reward_sum / 30
-                reward_sum = 0
-                self.reward_history.append([self.total_t, average_reward])
 
             # Save model in every 50 episode
             if self.i_episode % 500 == 0:
