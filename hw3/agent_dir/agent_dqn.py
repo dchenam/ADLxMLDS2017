@@ -34,7 +34,7 @@ class ReplayMemory(object):
 class DQN:
     def __init__(self, experiment_dir):
         self.n_actions = 4
-        self.learning_rate = 0.00025
+        self.learning_rate = 0.0001
         self.batch_size = 32
         self.gamma = 0.99
         self.decay_rate = 0.99
@@ -91,8 +91,8 @@ class DQN:
 
         # Calculate q values and targets
         # Loss = E[(r + gamma * max(Q target) - Q(eval))^2]
-        self.loss = tf.reduce_mean(tf.squared_difference(self.q_target, self.q_action, name='td_error'))
-
+        #self.loss = tf.reduce_max(tf.squared_difference(self.q_target, self.q_action, name='td_error'))
+        self.loss = tf.losses.huber_loss(self.q_target, self.q_action)
         self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate, self.decay_rate)
         #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
         gradients = self.optimizer.compute_gradients(self.loss, var_list=self.e_params)
@@ -158,8 +158,8 @@ class Agent_DQN(Agent):
 
         # The epsilon decay schedule
         epsilon_start = 1.0,
-        epsilon_end = 0.1,
-        self.epsilon_decay_steps = 100000
+        epsilon_end = 0.05,
+        self.epsilon_decay_steps = 1000000
         self.epsilons = np.linspace(epsilon_start, epsilon_end, self.epsilon_decay_steps)
 
         self.experiment_dir = os.path.abspath("./experiments/DQNv4")
