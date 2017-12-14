@@ -8,7 +8,7 @@ from itertools import count
 import random
 import sys
 
-Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state'))
+Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done'))
 EpisodeStats = namedtuple("Stats",["episode_lengths", "episode_rewards"])
 
 class ReplayMemory(object):
@@ -34,10 +34,9 @@ class ReplayMemory(object):
 class DQN:
     def __init__(self, experiment_dir):
         self.n_actions = 4
-        self.learning_rate = 1e-4
+        self.learning_rate = 0.00025
         self.batch_size = 32
         self.gamma = 0.99
-        self.clip_val = 10
         self.decay_rate = 0.99
 
         self.summary_writer = None
@@ -51,6 +50,7 @@ class DQN:
         self.actions = tf.placeholder(tf.int32, [None])
         self.rewards = tf.placeholder(tf.float32, [None])
         self.states_ = tf.placeholder(tf.float32, [None, 84, 84, 4])
+        self.dones = tf.placeholder(tf.float32, [None])
 
         with tf.variable_scope('eval_net'):
             # Three convolutional layers
@@ -61,8 +61,9 @@ class DQN:
             conv3 = tf.contrib.layers.conv2d(
                 conv2, 64, 3, 1, activation_fn=tf.nn.relu)
             flattened = tf.contrib.layers.flatten(conv3)
-            fc1 = tf.contrib.layers.fully_connected(flattened, 512)
-            self.q_eval = tf.contrib.layers.fully_connected(fc1, self.n_actions)
+            fc1 = tf.contrib.layers.fully_connected(flattened, 512, activation_fn=tf.contrib.keras.layers.LeakyReLU(alpha=0.01))
+            self.q_eval = tf.contrib.layers.fully_connected(
+                fc1, self.n_actions)
 
         with tf.variable_scope('target_net'):
             # Three convolutional layers
@@ -73,15 +74,16 @@ class DQN:
             conv3 = tf.contrib.layers.conv2d(
                 conv2, 64, 3, 1, activation_fn=tf.nn.relu)
             flattened = tf.contrib.layers.flatten(conv3)
-            fc1 = tf.contrib.layers.fully_connected(flattened, 512)
-            self.q_next = tf.contrib.layers.fully_connected(fc1, self.n_actions)
+            fc1 = tf.contrib.layers.fully_connected(flattened, 512, activation_fn=tf.contrib.keras.layers.LeakyReLU(alpha=0.01))
+            self.q_next = tf.contrib.layers.fully_connected(
+                fc1, self.n_actions)
 
         #Maybe Update Target Network
         self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_net')
         self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='eval_net')
         self.target_update = [tf.assign(t, e) for t, e in zip(self.t_params, self.e_params)]
 
-        q_target = self.rewards + self.gamma * tf.reduce_max(self.q_next, axis=1)
+        q_target = self.rewards + self.gamma * self.dones * tf.reduce_max(self.q_next, axis=1)
         self.q_target = tf.stop_gradient(q_target) #Freeze Target Network
 
         # Get the predictions for the chosen actions only
@@ -92,6 +94,7 @@ class DQN:
         self.loss = tf.reduce_mean(tf.squared_difference(self.q_target, self.q_action, name='td_error'))
 
         self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate, self.decay_rate)
+        #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
         gradients = self.optimizer.compute_gradients(self.loss, var_list=self.e_params)
         # for i, (grad, var) in enumerate(gradients):
         #     if grad is not None:
@@ -102,7 +105,6 @@ class DQN:
 
         self.summaries = tf.summary.merge([
             tf.summary.scalar("loss", self.loss),
-            tf.summary.histogram("q_values_hist", self.q_eval),
             tf.summary.scalar("max_q_value", tf.reduce_max(self.q_eval))
         ])
 
@@ -128,11 +130,11 @@ class DQN:
                 self.actions: batch_memory.action,
                 self.rewards: batch_memory.reward,
                 self.states_: batch_memory.next_state,
+                self.dones: np.invert(batch_memory.done).astype(np.float32)
             }
         )
         if self.summary_writer:
             self.summary_writer.add_summary(summaries, global_step)
-        return loss
 
 class Agent_DQN(Agent):
     def __init__(self, env, args):
@@ -154,7 +156,13 @@ class Agent_DQN(Agent):
         self.memory_size = 10000
         self.replay_memory = ReplayMemory(self.memory_size)
 
-        self.experiment_dir = os.path.abspath("./experiments/DQNv1")
+        # The epsilon decay schedule
+        epsilon_start = 1.0,
+        epsilon_end = 0.1,
+        self.epsilon_decay_steps = 100000
+        self.epsilons = np.linspace(epsilon_start, epsilon_end, self.epsilon_decay_steps)
+
+        self.experiment_dir = os.path.abspath("./experiments/DQNv4")
         self.checkpoints_dir = os.path.join(self.experiment_dir, "checkpoints")
         self.checkpoint_path = os.path.join(self.checkpoints_dir, "model")
         if not os.path.exists(self.checkpoints_dir):
@@ -173,12 +181,6 @@ class Agent_DQN(Agent):
                                             'DQN_network.ckpt')
         self.total_t = self.sess.run(tf.train.get_global_step())
 
-        # The epsilon decay schedule
-        epsilon_start = 1.0,
-        epsilon_end = 0.05,
-        self.epsilon_decay_steps = 1000000
-        self.epsilons = np.linspace(epsilon_start, epsilon_end, self.epsilon_decay_steps)
-
         if args.resume or args.test_dqn:
             self.load_checkpoint()
 
@@ -196,9 +198,10 @@ class Agent_DQN(Agent):
         print("Populating replay memory...")
         state = self.env.reset()
         for i in range(self.initial_memory_size):
-            action = self.dqn.choose_action(self.sess, state, self.epsilons[0]) # Random Actions Only
+            action = self.dqn.choose_action(self.sess, state, self.epsilons[min(self.total_t, self.epsilon_decay_steps - 1)])
             next_state, reward, done, _ = self.env.step(action)
-            self.replay_memory.push(state, action, reward, next_state)
+            self.replay_memory.push(state, action, reward, next_state, done)
+            self.total_t += 1
             if done:
                 state = self.env.reset()
             else:
@@ -223,14 +226,14 @@ class Agent_DQN(Agent):
                 next_state, reward, done, _ = self.env.step(action)
 
                 # Save Transition to Memory
-                self.replay_memory.push(state, action, reward, next_state)
+                self.replay_memory.push(state, action, reward, next_state, done)
 
                 # Update statistics
                 stats.episode_rewards[self.i_episode] += reward
                 stats.episode_lengths[self.i_episode] = t
 
                 if self.total_t % self.policy_update_freq == 0:
-                    loss = self.dqn.train(self.sess, self.replay_memory)
+                    self.dqn.train(self.sess, self.replay_memory)
 
                 reward_epsiode += reward
                 state = next_state
@@ -294,8 +297,6 @@ class Agent_DQN(Agent):
             action: int
                 the predicted action from trained model
         """
-        ##################
-        # YOUR CODE HERE #
-        ##################
-        return self.env.get_random_action()
+        action = self.dqn.choose_action(self.sess, observation, 0.05)
+        return action
 
