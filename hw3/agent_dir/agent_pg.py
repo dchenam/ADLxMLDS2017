@@ -9,7 +9,8 @@ np.random.seed(1)
 tf.set_random_seed(1)
 
 class Policy:
-    def __init__(self, learning_rate, decay_rate, gamma, n_actions):
+    def __init__(self, learning_rate, decay_rate, gamma, n_actions, checkpoints_dir):
+
         self.learning_rate = learning_rate
         self.decay_rate = decay_rate
         self.gamma = gamma
@@ -46,8 +47,15 @@ class Policy:
             optimizer = tf.train.AdamOptimizer(learning_rate)
             self.train_op = optimizer.minimize(loss)
 
-    def sample(self, sess, observations):
-        prob = sess.run(
+        self.sess = tf.InteractiveSession()
+        tf.global_variables_initializer().run()
+        self.saver = tf.train.Saver(tf.global_variables())
+        self.checkpoint_path = checkpoints_dir
+        self.checkpoint_file = os.path.join(checkpoints_dir,
+                                            'policy_network.ckpt')
+
+    def sample(self, observations):
+        prob = self.sess.run(
             self.prob,
             feed_dict={self.observations: np.reshape(observations, [1, -1])})
         action = np.random.choice(3, p=prob.ravel())
@@ -71,14 +79,15 @@ class Policy:
         discount_rewards /= np.std(discount_rewards) + np.finfo(np.float32).eps
         return discount_rewards
 
-    def train(self, sess):
+    def train(self):
         discount_reward = self.discount_rewards()
         feed_dict = {
             self.observations: np.vstack(self.states),
             self.sampled_actions: np.array(self.actions),
             self.advantage: discount_reward
         }
-        sess.run(self.train_op, feed_dict)
+        self.sess.run(self.train_op, feed_dict)
+#        self.states, self.actions, self.rewards = [], [], []
         del self.states[:]
         del self.actions[:]
         del self.rewards[:]
@@ -95,6 +104,7 @@ def prepro(I):
 class Agent_PG(Agent):
     def __init__(self, env, args):
         super(Agent_PG,self).__init__(env)
+
         # hyperparameters
         self.learning_rate = 1e-3
         self.gamma = 0.99
@@ -108,18 +118,13 @@ class Agent_PG(Agent):
         self.running_reward = None
         self.reward_history = []
 
-        self.sess = tf.InteractiveSession()
+        if not os.path.exists('./tf_checkpoints'):
+            os.makedirs('./tf_checkpoints')
+
         self.policy = Policy(learning_rate=self.learning_rate, decay_rate = self.decay_rate,
-                             gamma=self.gamma, n_actions=self.n_actions)
-        tf.global_variables_initializer().run()
-
-        self.saver = tf.train.Saver()
-        self.experiment_dir = os.path.abspath("./saved/REINFORCE")
-        self.checkpoints_dir = os.path.join(self.experiment_dir, "checkpoints")
-        self.checkpoint_file = os.path.join(self.checkpoints_dir,
-                                            'policy_network.ckpt')
-
-        if args.test_pg:
+                             gamma=self.gamma, n_actions=self.n_actions,
+                             checkpoints_dir='./tf_checkpoints/')
+        if args.resume or args.test_pg:
             self.load_checkpoint()
 
     def init_game_setting(self):
@@ -128,14 +133,12 @@ class Agent_PG(Agent):
     def train(self):
         time_step = 0
         reward_sum = 0
-
         while True:
             #Reset Episode Parameters
             done = False
             reward_epsiode = 0
             round_n = 1
             state = self.env.reset()
-
             while not done:
                 #Compute State Delta
                 state = prepro(state)
@@ -143,7 +146,7 @@ class Agent_PG(Agent):
                 # self.prev_state = state
 
                 #Sample Stochastic Policy
-                action = self.policy.sample(self.sess, state)
+                action = self.policy.sample(state)
                 # Step Environment and Update Reward
                 next_state, reward, done, _ = self.env.step(action + 1)
 
@@ -154,17 +157,15 @@ class Agent_PG(Agent):
                 time_step += 1
                 state = next_state
 
-            self.policy.train(self.sess)
+            #Don't Forget this Line T_T
+            self.policy.train()
             reward_sum += reward_epsiode
-
             if self.i_episode % 30 == 0:
                 average_reward = reward_sum / 30
                 reward_sum = 0
                 self.reward_history.append([time_step, average_reward])
-
             # Logging
             self.running_reward = reward_epsiode if self.running_reward is None else self.running_reward * 0.99 + reward_epsiode * 0.01
-
             if self.i_episode % 10 == 0:
                 print(
                     'ep {}: reward: {}, mean reward: {:3f}'.format(self.i_episode, reward_epsiode, self.running_reward))
@@ -180,24 +181,25 @@ class Agent_PG(Agent):
 
     def load_checkpoint(self):
         print("Loading checkpoint...")
-        latest_checkpoint = tf.train.latest_checkpoint(self.checkpoints_dir)
-        if latest_checkpoint:
-            print("Loading model checkpoint {}...\n".format(latest_checkpoint))
-            self.saver.restore(self.sess, latest_checkpoint)
-        self.reward_history = pickle.load(open(os.path.join(self.experiment_dir, 'reward_history.p'), 'rb'))
-        self.i_episode = int(latest_checkpoint.split('-')[-1])
+        ckpt = tf.train.get_checkpoint_state(self.policy.checkpoint_path)
+        load_path = ckpt.model_checkpoint_path
+        self.policy.saver.restore(self.policy.sess, load_path)
+        self.policy.saver = tf.train.Saver(tf.global_variables())
+        self.reward_history = pickle.load(open('./tf_checkpoints/reward_history.p', 'rb'))
+        self.i_episode = int(load_path.split('-')[-1])
 
     def save_checkpoint(self):
         print("Saving checkpoint...")
-        if not os.path.exists('./tf_checkpoints'):
-            os.makedirs('./tf_checkpoints')
-        self.saver.save(self.sess, self.checkpoint_file, global_step=self.i_episode)
+        self.policy.saver.save(self.policy.sess, self.policy.checkpoint_file, global_step=self.i_episode)
         pickle.dump(self.reward_history, open('./tf_checkpoints/reward_history.p', 'wb'))
 
     def make_action(self, observation, test=True):
-        # Preprocess State
+        # Compute State Delta
         state = prepro(observation)
+        # state_delta = state - self.prev_state if self.prev_state is not None else np.zeros_like(state)
+        # self.prev_state = state
+
         # Sample Stochastic Policy
-        action = self.policy.sample(self.sess, state)
+        action = self.policy.sample(state)
         return action + 1
 
