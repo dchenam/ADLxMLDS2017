@@ -92,20 +92,17 @@ class DQN:
         # Calculate q values and targets
         # Loss = E[(r + gamma * max(Q target) - Q(eval))^2]
         self.loss = tf.reduce_max(tf.squared_difference(self.q_target, self.q_action, name='td_error'))
-        #self.loss = tf.losses.huber_loss(self.q_target, self.q_action)
         self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate, self.decay_rate)
-        #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
         gradients = self.optimizer.compute_gradients(self.loss, var_list=self.e_params)
         # for i, (grad, var) in enumerate(gradients):
         #     if grad is not None:
         #         gradients[i] = (tf.clip_by_norm(grad, self.clip_val), var)
         self.train_op = self.optimizer.apply_gradients(gradients,
                                                        global_step=tf.train.get_global_step())
-        # self.train_op = self.optimizer.minimize(self.loss, global_step=tf.contrib.framework.get_global_step())
 
         self.summaries = tf.summary.merge([
             tf.summary.scalar("loss", self.loss),
-            tf.summary.scalar("max_q_value", tf.reduce_max(self.q_eval))
+            tf.summary.scalar("max_q_value", tf.reduce_max(self.q_eval)) #reduce_mean does not work
         ])
 
     def choose_action(self, sess, observation, epsilon):
@@ -162,9 +159,8 @@ class Agent_DQN(Agent):
         self.epsilon_decay_steps = 1000000
         self.epsilons = np.linspace(epsilon_start, epsilon_end, self.epsilon_decay_steps)
 
-        self.experiment_dir = os.path.abspath("./experiments/DQNv5")
+        self.experiment_dir = os.path.abspath("./saved/Vanilla_DQN")
         self.checkpoints_dir = os.path.join(self.experiment_dir, "checkpoints")
-        self.checkpoint_path = os.path.join(self.checkpoints_dir, "model")
         if not os.path.exists(self.checkpoints_dir):
             os.makedirs(self.checkpoints_dir)
 
@@ -176,12 +172,11 @@ class Agent_DQN(Agent):
         tf.global_variables_initializer().run()
 
         self.saver = tf.train.Saver()
-        self.checkpoint_path = self.checkpoints_dir
         self.checkpoint_file = os.path.join(self.checkpoints_dir,
                                             'DQN_network.ckpt')
         self.total_t = self.sess.run(tf.train.get_global_step())
 
-        if args.resume or args.test_dqn:
+        if args.test_dqn:
             self.load_checkpoint()
 
     def init_game_setting(self):
@@ -217,10 +212,6 @@ class Agent_DQN(Agent):
                 if self.total_t % self.target_update_freq == 0:
                     self.sess.run(self.dqn.target_update)
                     print('\ntarget network updated')
-
-                # print("\rStep {} ({}) @ Episode {}/{}, reward: {}".format(
-                #     t, self.total_t, self.i_episode + 1, self.num_episodes, reward), end="")
-                # sys.stdout.flush()
 
                 action = self.dqn.choose_action(self.sess, state, epsilon)
                 next_state, reward, done, _ = self.env.step(action)
@@ -276,8 +267,6 @@ class Agent_DQN(Agent):
         if latest_checkpoint:
             print("Loading model checkpoint {}...\n".format(latest_checkpoint))
             self.saver.restore(self.sess, latest_checkpoint)
-        self.saver.restore(self.sess, latest_checkpoint)
-        self.saver = tf.train.Saver(tf.global_variables())
         self.reward_history = pickle.load(open(os.path.join(self.experiment_dir, 'reward_history.p'), 'rb'))
 
     def save_checkpoint(self):

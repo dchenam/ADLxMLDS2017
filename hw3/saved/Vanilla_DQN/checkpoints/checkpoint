@@ -1,0 +1,5 @@
+model_checkpoint_path: "DQN_network.ckpt-25000"
+all_model_checkpoint_paths: "DQN_network.ckpt-23500"
+all_model_checkpoint_paths: "DQN_network.ckpt-24000"
+all_model_checkpoint_paths: "DQN_network.ckpt-24500"
+all_model_checkpoint_paths: "DQN_network.ckpt-25000"
