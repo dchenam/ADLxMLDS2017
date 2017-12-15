@@ -1,6 +1,0 @@
-model_checkpoint_path: "policy_network.ckpt-4750"
-all_model_checkpoint_paths: "policy_network.ckpt-4550"
-all_model_checkpoint_paths: "policy_network.ckpt-4600"
-all_model_checkpoint_paths: "policy_network.ckpt-4650"
-all_model_checkpoint_paths: "policy_network.ckpt-4700"
-all_model_checkpoint_paths: "policy_network.ckpt-4750"
