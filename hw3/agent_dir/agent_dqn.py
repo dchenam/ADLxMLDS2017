@@ -91,8 +91,8 @@ class DQN:
 
         # Calculate q values and targets
         # Loss = E[(r + gamma * max(Q target) - Q(eval))^2]
-        #self.loss = tf.reduce_max(tf.squared_difference(self.q_target, self.q_action, name='td_error'))
-        self.loss = tf.losses.huber_loss(self.q_target, self.q_action)
+        self.loss = tf.reduce_max(tf.squared_difference(self.q_target, self.q_action, name='td_error'))
+        #self.loss = tf.losses.huber_loss(self.q_target, self.q_action)
         self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate, self.decay_rate)
         #self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
         gradients = self.optimizer.compute_gradients(self.loss, var_list=self.e_params)
@@ -162,7 +162,7 @@ class Agent_DQN(Agent):
         self.epsilon_decay_steps = 1000000
         self.epsilons = np.linspace(epsilon_start, epsilon_end, self.epsilon_decay_steps)
 
-        self.experiment_dir = os.path.abspath("./experiments/DQNv4")
+        self.experiment_dir = os.path.abspath("./experiments/DQNv5")
         self.checkpoints_dir = os.path.join(self.experiment_dir, "checkpoints")
         self.checkpoint_path = os.path.join(self.checkpoints_dir, "model")
         if not os.path.exists(self.checkpoints_dir):
