@@ -162,9 +162,8 @@ class Agent_DQN(Agent):
         self.epsilon_decay_steps = 1000000
         self.epsilons = np.linspace(epsilon_start, epsilon_end, self.epsilon_decay_steps)
 
-        self.experiment_dir = os.path.abspath("./experiments/DQNv5")
+        self.experiment_dir = os.path.abspath("./saved/Vanilla_DQN")
         self.checkpoints_dir = os.path.join(self.experiment_dir, "checkpoints")
-        self.checkpoint_path = os.path.join(self.checkpoints_dir, "model")
         if not os.path.exists(self.checkpoints_dir):
             os.makedirs(self.checkpoints_dir)
 
@@ -176,12 +175,11 @@ class Agent_DQN(Agent):
         tf.global_variables_initializer().run()
 
         self.saver = tf.train.Saver()
-        self.checkpoint_path = self.checkpoints_dir
         self.checkpoint_file = os.path.join(self.checkpoints_dir,
                                             'DQN_network.ckpt')
         self.total_t = self.sess.run(tf.train.get_global_step())
 
-        if args.resume or args.test_dqn:
+        if args.test_dqn:
             self.load_checkpoint()
 
     def init_game_setting(self):
@@ -276,8 +274,6 @@ class Agent_DQN(Agent):
         if latest_checkpoint:
             print("Loading model checkpoint {}...\n".format(latest_checkpoint))
             self.saver.restore(self.sess, latest_checkpoint)
-        self.saver.restore(self.sess, latest_checkpoint)
-        self.saver = tf.train.Saver(tf.global_variables())
         self.reward_history = pickle.load(open(os.path.join(self.experiment_dir, 'reward_history.p'), 'rb'))
 
     def save_checkpoint(self):
