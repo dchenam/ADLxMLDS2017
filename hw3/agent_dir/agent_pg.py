@@ -47,15 +47,8 @@ class Policy:
             optimizer = tf.train.AdamOptimizer(learning_rate)
             self.train_op = optimizer.minimize(loss)
 
-        self.sess = tf.InteractiveSession()
-        tf.global_variables_initializer().run()
-        self.saver = tf.train.Saver(tf.global_variables())
-        self.checkpoint_path = checkpoints_dir
-        self.checkpoint_file = os.path.join(checkpoints_dir,
-                                            'policy_network.ckpt')
-
-    def sample(self, observations):
-        prob = self.sess.run(
+    def sample(self, sess, observations):
+        prob = sess.run(
             self.prob,
             feed_dict={self.observations: np.reshape(observations, [1, -1])})
         action = np.random.choice(3, p=prob.ravel())
@@ -79,14 +72,14 @@ class Policy:
         discount_rewards /= np.std(discount_rewards) + np.finfo(np.float32).eps
         return discount_rewards
 
-    def train(self):
+    def train(self, sess):
         discount_reward = self.discount_rewards()
         feed_dict = {
             self.observations: np.vstack(self.states),
             self.sampled_actions: np.array(self.actions),
             self.advantage: discount_reward
         }
-        self.sess.run(self.train_op, feed_dict)
+        sess.run(self.train_op, feed_dict)
 #        self.states, self.actions, self.rewards = [], [], []
         del self.states[:]
         del self.actions[:]
@@ -118,13 +111,18 @@ class Agent_PG(Agent):
         self.running_reward = None
         self.reward_history = []
 
-        if not os.path.exists('./tf_checkpoints'):
-            os.makedirs('./tf_checkpoints')
-
+        self.sess = tf.InteractiveSession()
         self.policy = Policy(learning_rate=self.learning_rate, decay_rate = self.decay_rate,
                              gamma=self.gamma, n_actions=self.n_actions,
-                             checkpoints_dir='./tf_checkpoints/')
-        if args.resume or args.test_pg:
+                             checkpoints_dir='./saved/REINFORCE/')
+        tf.global_variables_initializer().run()
+        self.saver = tf.train.Saver(tf.global_variables())
+        self.experiment_dir = os.path.abspath("./saved/REINFORCE")
+        self.checkpoints_dir = os.path.join(self.experiment_dir, "checkpoints")
+        self.checkpoint_file = os.path.join(self.checkpoints_dir,
+                                            'policy_network.ckpt')
+
+        if args.test_pg:
             self.load_checkpoint()
 
     def init_game_setting(self):
@@ -142,11 +140,10 @@ class Agent_PG(Agent):
             while not done:
                 #Compute State Delta
                 state = prepro(state)
-                # state_delta = state - self.prev_state if self.prev_state is not None else state
-                # self.prev_state = state
 
                 #Sample Stochastic Policy
-                action = self.policy.sample(state)
+                action = self.policy.sample(self.sess, state)
+
                 # Step Environment and Update Reward
                 next_state, reward, done, _ = self.env.step(action + 1)
 
@@ -158,7 +155,8 @@ class Agent_PG(Agent):
                 state = next_state
 
             #Don't Forget this Line T_T
-            self.policy.train()
+            self.policy.train(self.sess)
+
             reward_sum += reward_epsiode
             if self.i_episode % 30 == 0:
                 average_reward = reward_sum / 30
@@ -181,25 +179,22 @@ class Agent_PG(Agent):
 
     def load_checkpoint(self):
         print("Loading checkpoint...")
-        ckpt = tf.train.get_checkpoint_state(self.policy.checkpoint_path)
-        load_path = ckpt.model_checkpoint_path
-        self.policy.saver.restore(self.policy.sess, load_path)
-        self.policy.saver = tf.train.Saver(tf.global_variables())
-        self.reward_history = pickle.load(open('./tf_checkpoints/reward_history.p', 'rb'))
-        self.i_episode = int(load_path.split('-')[-1])
+        latest_checkpoint = tf.train.latest_checkpoint(self.checkpoints_dir)
+        if latest_checkpoint:
+            print("Loading model checkpoint {}...\n".format(latest_checkpoint))
+            self.saver.restore(self.sess, latest_checkpoint)
+        self.reward_history = pickle.load(open(os.path.join(self.experiment_dir, 'reward_history.p'), 'rb'))
 
     def save_checkpoint(self):
         print("Saving checkpoint...")
-        self.policy.saver.save(self.policy.sess, self.policy.checkpoint_file, global_step=self.i_episode)
+        self.saver.save(self.sess, self.checkpoint_file, global_step=self.i_episode)
         pickle.dump(self.reward_history, open('./tf_checkpoints/reward_history.p', 'wb'))
 
     def make_action(self, observation, test=True):
         # Compute State Delta
         state = prepro(observation)
-        # state_delta = state - self.prev_state if self.prev_state is not None else np.zeros_like(state)
-        # self.prev_state = state
 
         # Sample Stochastic Policy
-        action = self.policy.sample(state)
+        action = self.policy.sample(self.sess, state)
         return action + 1
 
