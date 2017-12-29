@@ -44,8 +44,13 @@ class GAN:
         disc_fake_logits = self.discriminator(self.fake_image, self.real_caption_input, reuse=True, training=self.learning_phase)
 
         # Loss
-        ones = tf.ones([self.batch_size, 1, 1, 1])
-        zeros = tf.zeros([self.batch_size, 1, 1, 1])
+
+        #Soft Labels
+        ones = np.random.uniform(0.7, 1.2, size=[self.batch_size, 1, 1, 1]).astype(np.float32)
+        zeros = np.random.uniform(0.0, 0.3, size=[self.batch_size, 1, 1, 1]).astype(np.float32)
+
+        # ones = tf.ones([self.batch_size, 1, 1, 1])
+        # zeros = tf.zeros([self.batch_size, 1, 1, 1])
         # self.gen_loss = tf.reduce_mean(losses.binary_crossentropy(y_pred=disc_fake_logits, y_true=tf.ones_like(disc_fake_image)))
         # disc_loss1 = tf.reduce_mean(losses.binary_crossentropy(y_pred=disc_real_logits, y_true=tf.ones_like(disc_fake_image)))
         # disc_loss2 = tf.reduce_mean(losses.binary_crossentropy(y_pred=disc_wrong_logits, y_true=tf.zeros_like(disc_fake_image)))
@@ -79,7 +84,7 @@ class GAN:
         # Summary Writers and Savers
         self.saver = tf.train.Saver()
         self.global_step = tf.Variable(0, name='global_step', trainable=False)
-        self.experiment_dir = os.path.abspath("./experiments/GAN-CLS2")
+        self.experiment_dir = os.path.join(os.path.abspath("./experiments"), args.model_name)
         self.checkpoint_dir = os.path.join(self.experiment_dir, 'checkpoints')
         summary_dir = os.path.join(self.experiment_dir, "summaries")
         if not os.path.exists(summary_dir):
@@ -131,6 +136,7 @@ class GAN:
             net = layers.dense(net, self.gen_dim * 8 * s16 * s16, name='concat/dense')
             # Deconvolution Layer in Original Paper ^
             net = tf.reshape(net, [tf.shape(embed_input)[0], s16, s16, self.gen_dim * 8])
+            net = leaky_relu(net)
             net = deconv2d(net, self.gen_dim * 4, output_shape=[s8, s8], training=training) # Conv1 (8 x 8 x 512)
             net = deconv2d(net, self.gen_dim * 2, output_shape=[s4, s4], training=training) # Conv2 (16 x 16 x 256)
             net = deconv2d(net, self.gen_dim, output_shape=[s2, s2], training=training) # Conv3 (32 x 32 x 128)
@@ -225,7 +231,7 @@ class GAN:
             print("No model found...")
 
 def parse():
-    parser = argparse.ArgumentParser(description="MLDS&ADL HW3")
+    parser = argparse.ArgumentParser(description="MLDS&ADL HW4")
     parser.add_argument('--learning_rate', default=0.0002, help='learning rate')
     parser.add_argument('--momentum', default=0.5, help='momentum')
     parser.add_argument('--batch_size', default=64, help='batch size')
@@ -235,6 +241,7 @@ def parse():
     parser.add_argument('--gen_dim', default=128, help='num of conv in the first layer of generator')
     parser.add_argument('--disc_dim', default=64, help='num of conv in the first layer of discriminator')
     parser.add_argument('--load', action='store_true', help='loads latest checkpoint')
+    parser.add_argument('--model_name', default='GAN-CLS3', help='name of newest model experiment')
     args = parser.parse_args()
     return args
 
@@ -263,18 +270,15 @@ if __name__ == '__main__':
                 step = i * batch_indices + num_batch
                 disc_loss = model.update_discriminator(batch_real_img, batch_real_cap, batch_wrong_img, step)
                 gen_loss = model.update_generator(batch_real_cap, step)
-                image = model.generate(test_embeddings['blue hair blue eyes'])
                 model.summary_writer.flush()
                 print('Epoch %i: Batch: %i(%i): Generator Loss: %f, Discriminator Loss: %f' % (
                     i, num_batch, len(shuffle_idx), gen_loss, disc_loss))
+                if step % 100 == 0:
+                    image = model.generate(test_embeddings['blue hair blue eyes'])
+                    sample_dir = os.path.join(model.experiment_dir, 'samples')
+                    if not os.path.exists(sample_dir):
+                        os.makedirs(sample_dir)
+                    skimage.io.imsave(os.path.join(sample_dir, str(step) + '.jpg'), image)
                 num_batch += 1
-            print('Epoch %i: Generator Loss: %f, Discriminator Loss: %f' % (i, gen_loss, disc_loss))
-            if i % 10 == 0:
-                model.save(i)
-            if i % 3 == 0:
-                image = model.generate(test_embeddings['blue hair blue eyes'])
-                sample_dir = os.path.join(model.experiment_dir, 'samples')
-                if not os.path.exists(sample_dir):
-                    os.makedirs(sample_dir)
-                skimage.io.imsave(os.path.join(sample_dir, str(i) + '.jpg'), image)
+            model.save(i)
         print('Training Finished...')
