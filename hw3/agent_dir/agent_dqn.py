@@ -164,6 +164,7 @@ class Agent_DQN(Agent):
 
         self.experiment_dir = os.path.abspath("./saved/Vanilla_DQN")
         self.checkpoints_dir = os.path.join(self.experiment_dir, "checkpoints")
+
         if not os.path.exists(self.checkpoints_dir):
             os.makedirs(self.checkpoints_dir)
 

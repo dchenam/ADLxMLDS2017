@@ -143,6 +143,7 @@ class Agent_PG(Agent):
 
                 #Sample Stochastic Policy
                 action = self.policy.sample(self.sess, state)
+
                 # Step Environment and Update Reward
                 next_state, reward, done, _ = self.env.step(action + 1)
 
@@ -155,6 +156,7 @@ class Agent_PG(Agent):
 
             #Don't Forget this Line T_T
             self.policy.train(self.sess)
+
             reward_sum += reward_epsiode
             if self.i_episode % 30 == 0:
                 average_reward = reward_sum / 30
