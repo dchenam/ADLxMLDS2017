@@ -43,22 +43,15 @@ class GAN:
         disc_wrong_logits = self.discriminator(self.wrong_image_input, self.real_caption_input, reuse=True, training=self.learning_phase)
         disc_fake_logits = self.discriminator(self.fake_image, self.real_caption_input, reuse=True, training=self.learning_phase)
 
+        # Network Targets
+        self.ones = tf.placeholder(tf.float32, shape=[None, 1, 1, 1])
+        self.zeros = tf.placeholder(tf.float32, shape=[None, 1, 1, 1])
+
         # Loss
-
-        #Soft Labels
-        ones = np.random.uniform(0.7, 1.2, size=[self.batch_size, 1, 1, 1]).astype(np.float32)
-        zeros = np.random.uniform(0.0, 0.3, size=[self.batch_size, 1, 1, 1]).astype(np.float32)
-
-        # ones = tf.ones([self.batch_size, 1, 1, 1])
-        # zeros = tf.zeros([self.batch_size, 1, 1, 1])
-        # self.gen_loss = tf.reduce_mean(losses.binary_crossentropy(y_pred=disc_fake_logits, y_true=tf.ones_like(disc_fake_image)))
-        # disc_loss1 = tf.reduce_mean(losses.binary_crossentropy(y_pred=disc_real_logits, y_true=tf.ones_like(disc_fake_image)))
-        # disc_loss2 = tf.reduce_mean(losses.binary_crossentropy(y_pred=disc_wrong_logits, y_true=tf.zeros_like(disc_fake_image)))
-        # disc_loss3 = tf.reduce_mean(losses.binary_crossentropy(y_pred=disc_fake_logits, y_true=tf.zeros_like(disc_fake_image)))
-        self.gen_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=disc_fake_logits, labels=ones))
-        disc_loss1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=disc_real_logits, labels=ones))
-        disc_loss2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=disc_wrong_logits, labels=zeros))
-        disc_loss3 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=disc_fake_logits, labels=zeros))
+        self.gen_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=disc_fake_logits, labels=self.ones))
+        disc_loss1 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=disc_real_logits, labels=self.ones))
+        disc_loss2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=disc_wrong_logits, labels=self.zeros))
+        disc_loss3 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=disc_fake_logits, labels=self.zeros))
         self.disc_loss = disc_loss1 + (disc_loss2 + disc_loss3) * 0.5
 
         # Training Op
@@ -75,11 +68,6 @@ class GAN:
         gen_grads, _ = list(zip(*gen_grads_vars))
         gen_norms = tf.global_norm(gen_grads)
         self.train_gen = optimizer_gen.apply_gradients(gen_grads_vars, name='Gen_Training_Op')
-
-        # self.train_gen = optimizer_gen.minimize(self.gen_loss, var_list=gen_vars,
-        #                                         global_step=tf.train.get_global_step())
-        # self.train_disc = optimizer_disc.minimize(self.disc_loss, var_list=disc_vars,
-        #                                           global_step=tf.train.get_global_step())
 
         # Summary Writers and Savers
         self.saver = tf.train.Saver()
@@ -189,7 +177,9 @@ class GAN:
         feed_dict={
             self.noise_input: np.random.normal(0., 1., [self.batch_size, self.noise_dim]),
             self.real_caption_input: batch_cap,
-            self.learning_phase:True
+            self.learning_phase:True,
+            self.ones: np.random.uniform(0.7, 1.2, size=[self.batch_size, 1, 1, 1]).astype(np.float32),
+            self.zeros: np.random.uniform(0.0, 0.3, size=[self.batch_size, 1, 1, 1]).astype(np.float32)
         }
         summaries, gen_loss, _ = self.sess.run([
             self.gen_summaries,
@@ -204,7 +194,9 @@ class GAN:
             self.real_image_input: batch_real_img,
             self.wrong_image_input: batch_wrong_img,
             self.real_caption_input: batch_real_cap,
-            self.learning_phase:True
+            self.learning_phase:True,
+            self.ones: np.random.uniform(0.7, 1.2, size=[self.batch_size, 1, 1, 1]).astype(np.float32),
+            self.zeros: np.random.uniform(0.0, 0.3, size=[self.batch_size, 1, 1, 1]).astype(np.float32)
         }
         summaries, disc_loss, _ = self.sess.run([
             self.disc_summaries,
@@ -269,6 +261,7 @@ if __name__ == '__main__':
                 batch_wrong_img = image_data[random_idx]
                 step = i * batch_indices + num_batch
                 disc_loss = model.update_discriminator(batch_real_img, batch_real_cap, batch_wrong_img, step)
+                gen_loss = model.update_generator(batch_real_cap, step)
                 gen_loss = model.update_generator(batch_real_cap, step)
                 model.summary_writer.flush()
                 print('Epoch %i: Batch: %i(%i): Generator Loss: %f, Discriminator Loss: %f' % (
