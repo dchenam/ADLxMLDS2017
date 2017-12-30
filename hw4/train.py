@@ -1,9 +1,6 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow import layers
-# from tensorflow.contrib import layers
-# from tensorflow.contrib.keras import layers, losses
-# from tensorflow.contrib.keras import preprocessing
 from tensorflow.contrib.keras import backend as K
 import argparse
 import os
@@ -93,11 +90,6 @@ class GAN:
     def generator(self, embed_input, noise_input, training=True, reuse=False):
 
         def deconv2d(x, filters, kernels=(4, 4), strides=(2, 2), training=True, output_shape=None):
-            # x = layers.Conv2DTranspose(filters, kernel_size=kernels, strides=strides, padding='same')(x)
-            # # x = layers.UpSampling2D(output_shape)
-            # # x = layers.Conv2D()(filter, kernel_size=kernels, strides=strides)
-            # x = layers.BatchNormalization()(x)
-            # x = layers.Activation('relu')(x)
             x = layers.conv2d_transpose(x, filters, kernels, strides, padding='same')
             x = layers.batch_normalization(x, training=training)
             x = leaky_relu(x)
@@ -106,25 +98,14 @@ class GAN:
         s = self.image_size
         s2, s4, s8, s16 = int(s / 2), int(s / 4), int(s / 8), int(s / 16)
         with tf.variable_scope('Generator', reuse=reuse):
-            # encoding_vec = layers.Dense(self.encode_dim, name='embedding/dense')(embed_input)
-            # encoding_vec = layers.LeakyReLU()(encoding_vec)
-            # net = layers.concatenate([encoding_vec, noise_input])
-            # net = layers.Dense(self.gen_dim * 8 * s16 * s16, name='concat/dense')(net)
-            # # Deconvolution Layer in Original Paper ^
-            # net = layers.BatchNormalization()(net)
-            # net = layers.Reshape([s16, s16, self.gen_dim * 8])(net)
-            # net = deconv2d(net, self.gen_dim * 4, output_shape=[s8, s8]) # Conv1 (8 x 8 x 512)
-            # net = deconv2d(net, self.gen_dim * 2, output_shape=[s4, s4]) # Conv2 (16 x 16 x 256)
-            # net = deconv2d(net, self.gen_dim, output_shape=[s2, s2]) # Conv3 (32 x 32 x 128)
-            # net = layers.Conv2DTranspose(3, kernel_size=(4, 4), strides=(2, 2), activation='tanh', padding='same')(net)
-            # Conv4 (64 x 64 x 3)
             encoding_vec = layers.dense(embed_input, self.encode_dim, name='embedding/dense')
             encoding_vec = leaky_relu(encoding_vec)
             net = tf.concat([encoding_vec, noise_input], axis=-1)
             net = layers.dense(net, self.gen_dim * 8 * s16 * s16, name='concat/dense')
-            # Deconvolution Layer in Original Paper ^
-            net = tf.reshape(net, [tf.shape(embed_input)[0], s16, s16, self.gen_dim * 8])
+            net = layers.batch_normalization(net)
             net = leaky_relu(net)
+            net = tf.reshape(net, [tf.shape(embed_input)[0], s16, s16, self.gen_dim * 8])
+            net = deconv2d(net, self.gen_dim * 8, output_shape=[s16, s16], training=training)  # Conv1 (4 x 4 x 1024)
             net = deconv2d(net, self.gen_dim * 4, output_shape=[s8, s8], training=training) # Conv1 (8 x 8 x 512)
             net = deconv2d(net, self.gen_dim * 2, output_shape=[s4, s4], training=training) # Conv2 (16 x 16 x 256)
             net = deconv2d(net, self.gen_dim, output_shape=[s2, s2], training=training) # Conv3 (32 x 32 x 128)
@@ -134,26 +115,12 @@ class GAN:
     def discriminator(self, img_input, embed_input, training=True, reuse=False):
 
         def conv2d(x, filter, kernel=(4, 4), strides=(2, 2), training=True):
-            # x = layers.Conv2D(filter, kernel, strides, padding='same')(x)
-            # x = layers.BatchNormalization()(x)
-            # x = layers.LeakyReLU(0.2)(x)
             x = layers.conv2d(x, filter, kernel, strides, padding='same')
             x = layers.batch_normalization(x, training=training)
             x = leaky_relu(x)
             return x
 
         with tf.variable_scope('Discriminator', reuse=reuse):
-            # encode_vec = layers.Dense(self.encode_dim, name='embedding/dense')(embed_input)
-            # encode_vec = layers.LeakyReLU(0.2)(encode_vec)
-            # net = conv2d(img_input, self.disc_dim)
-            # net = conv2d(net, self.disc_dim * 2)
-            # net = conv2d(net, self.disc_dim * 4)
-            # net = conv2d(net, self.disc_dim * 8)
-            # net = layers.Lambda(
-            #     lambda x: K.concatenate([x[0], K.reshape(K.repeat(x[1], n=16), shape=(-1, 4, 4, self.encode_dim))])
-            # )([net, encode_vec])
-            # net = layers.Conv2D(1, kernel_size=[4, 4], strides=[1, 1], padding='valid', activation='sigmoid')(net)
-            # net = layers.Flatten()(net)
             encode_vec = layers.dense(embed_input, self.encode_dim, name='embedding/dense')
             encode_vec = leaky_relu(encode_vec)
             net = conv2d(img_input, self.disc_dim, training=training)
@@ -166,7 +133,7 @@ class GAN:
 
     def generate(self, caption):
         feed_dict={
-            self.noise_input: np.random.normal(0., 1., [1, self.noise_dim]),
+            self.noise_input: np.random.uniform(-1., 1., [1, self.noise_dim]),
             self.real_caption_input:np.expand_dims(caption, 0),
             self.learning_phase:False
         }
@@ -175,11 +142,11 @@ class GAN:
 
     def update_generator(self, batch_cap, step):
         feed_dict={
-            self.noise_input: np.random.normal(0., 1., [self.batch_size, self.noise_dim]),
+            self.noise_input: np.random.uniform(-1., 1., [self.batch_size, self.noise_dim]),
             self.real_caption_input: batch_cap,
             self.learning_phase:True,
-            self.ones: np.random.uniform(0.7, 1.2, size=[self.batch_size, 1, 1, 1]).astype(np.float32),
-            self.zeros: np.random.uniform(0.0, 0.3, size=[self.batch_size, 1, 1, 1]).astype(np.float32)
+            self.ones: np.ones([self.batch_size, 1, 1, 1]).astype(np.float32),
+            self.zeros: np.zeros([self.batch_size, 1, 1, 1]).astype(np.float32)
         }
         summaries, gen_loss, _ = self.sess.run([
             self.gen_summaries,
@@ -190,7 +157,7 @@ class GAN:
 
     def update_discriminator(self, batch_real_img, batch_real_cap, batch_wrong_img, step):
         feed_dict={
-            self.noise_input: np.random.normal(0., 1., [self.batch_size, self.noise_dim]),
+            self.noise_input: np.random.uniform(-1., 1., [self.batch_size, self.noise_dim]),
             self.real_image_input: batch_real_img,
             self.wrong_image_input: batch_wrong_img,
             self.real_caption_input: batch_real_cap,
@@ -229,49 +196,50 @@ def parse():
     parser.add_argument('--batch_size', default=64, help='batch size')
     parser.add_argument('--epoch', default=300, help='number of epochs')
     parser.add_argument('--noise_dim', default=100, help='gaussian or uniform noise dim')
-    parser.add_argument('--encode_dim', default=128, help='text embedding reduction dim')
+    parser.add_argument('--encode_dim', default=256, help='text embedding reduction dim')
     parser.add_argument('--gen_dim', default=128, help='num of conv in the first layer of generator')
     parser.add_argument('--disc_dim', default=64, help='num of conv in the first layer of discriminator')
     parser.add_argument('--load', action='store_true', help='loads latest checkpoint')
-    parser.add_argument('--model_name', default='GAN-CLS3', help='name of newest model experiment')
+    parser.add_argument('--model_name', default='GAN-CLS', help='name of newest model experiment')
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
     args = parse()
-    with tf.Session() as sess:
-        model = GAN(sess, args)
-        sess.run(tf.global_variables_initializer())
-        batch_size = args.batch_size
-        noise_dim = args.noise_dim
-        image_data = np.load('train_images.npy') # really bad data pipeline but...
-        caption_data = np.load('train_embeddings.npy')
-        test_embeddings = pickle.load(open('test_embeddings.pkl', 'rb'))
-        for i in range(args.epoch):
-            disc_loss = None
-            gen_loss = None
-            batch_indices = len(image_data) // args.batch_size
-            shuffle_idx = np.arange(batch_indices)
-            np.random.shuffle(shuffle_idx)
-            random_idx = np.random.randint(image_data.shape[0], size=args.batch_size)
-            num_batch = 0
-            for index in shuffle_idx:
-                batch_real_img = image_data[index * batch_size : (index + 1) * batch_size]
-                batch_real_cap = caption_data[index * batch_size : (index + 1) * batch_size]
-                batch_wrong_img = image_data[random_idx]
-                step = i * batch_indices + num_batch
-                disc_loss = model.update_discriminator(batch_real_img, batch_real_cap, batch_wrong_img, step)
-                gen_loss = model.update_generator(batch_real_cap, step)
-                gen_loss = model.update_generator(batch_real_cap, step)
-                model.summary_writer.flush()
-                print('Epoch %i: Batch: %i(%i): Generator Loss: %f, Discriminator Loss: %f' % (
-                    i, num_batch, len(shuffle_idx), gen_loss, disc_loss))
-                if step % 100 == 0:
-                    image = model.generate(test_embeddings['blue hair blue eyes'])
-                    sample_dir = os.path.join(model.experiment_dir, 'samples')
-                    if not os.path.exists(sample_dir):
-                        os.makedirs(sample_dir)
-                    skimage.io.imsave(os.path.join(sample_dir, str(step) + '.jpg'), image)
-                num_batch += 1
-            model.save(i)
-        print('Training Finished...')
+    sess = tf.InteractiveSession()
+    model = GAN(sess, args)
+    sess.run(tf.global_variables_initializer())
+    batch_size = args.batch_size
+    noise_dim = args.noise_dim
+    image_data = np.load('train_images.npy') # really bad data pipeline but...
+    caption_data = np.load('train_embeddings.npy')
+    test_embeddings = pickle.load(open('test_embeddings.pkl', 'rb'))
+    if args.load:
+        model.load()
+    for i in range(args.epoch):
+        disc_loss = None
+        gen_loss = None
+        batch_indices = len(image_data) // args.batch_size
+        shuffle_idx = np.arange(batch_indices)
+        np.random.shuffle(shuffle_idx)
+        random_idx = np.random.randint(image_data.shape[0], size=args.batch_size)
+        num_batch = 0
+        for index in shuffle_idx:
+            batch_real_img = image_data[index * batch_size : (index + 1) * batch_size]
+            batch_real_cap = caption_data[index * batch_size : (index + 1) * batch_size]
+            batch_wrong_img = image_data[random_idx]
+            step = i * batch_indices + num_batch
+            disc_loss = model.update_discriminator(batch_real_img, batch_real_cap, batch_wrong_img, step)
+            gen_loss = model.update_generator(batch_real_cap, step)
+            model.summary_writer.flush()
+            print('Epoch %i: Batch: %i(%i): Generator Loss: %f, Discriminator Loss: %f' % (
+                i, num_batch, len(shuffle_idx), gen_loss, disc_loss))
+            if step % 100 == 0:
+                image = model.generate(test_embeddings['blue hair blue eyes'])
+                sample_dir = os.path.join(model.experiment_dir, 'samples')
+                if not os.path.exists(sample_dir):
+                    os.makedirs(sample_dir)
+                skimage.io.imsave(os.path.join(sample_dir, str(step) + '.jpg'), image)
+            num_batch += 1
+        model.save(i)
+    print('Training Finished...')
