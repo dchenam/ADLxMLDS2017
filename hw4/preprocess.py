@@ -14,17 +14,20 @@ EMBEDDING_MATRIX_FILE = "skip_thoughts_uni/embeddings.npy"
 CHECKPOINT_PATH = "skip_thoughts_uni/model.ckpt-501424"
 
 def process_images(bad_idx):
+    print('processing images...')
+    print(len(bad_idx))
     img_data = []
     for i in range(33431):
         img = skimage.io.imread(os.path.join('data/faces', str(i) + '.jpg'))
         img = skimage.transform.resize(img, (64, 64))
         img_data.append(img)
-    img_data = [img for i, img in enumerate(img_data) if i not in bad_idx]
-    img_data = np.array(img_data)
+    filtered_img_data = [img for i, img in enumerate(img_data) if i not in bad_idx]
+    img_data = np.array(filtered_img_data)
     img_data = img_data * 2 - 1
     np.save('train_images.npy', img_data)
 
 def clean_tags():
+    print('cleaning tags...')
     tags = pd.read_csv('data/tags_clean.csv', header=None, sep='\t', names=list(range(50)))
     clean = tags.applymap(lambda x:re.sub('[\d,:""]','', str(x)))
     mask = clean.applymap(lambda x:("eyes" in str(x)) or ("hair" in str(x)))
@@ -43,6 +46,8 @@ def clean_tags():
     x.close()
     return bad_idx
 def encode_tags(bad_idx):
+    print('encoding captions..')
+    print(len(bad_idx))
     encoder = encoder_manager.EncoderManager()
     encoder.load_model(configuration.model_config(),
                        vocabulary_file=VOCAB_FILE,
@@ -51,8 +56,8 @@ def encode_tags(bad_idx):
     data = []
     with open('tags_clean.txt', 'r') as f:
         data.extend(line.strip() for line in f)
-    data = [caption for i, caption in enumerate(data) if i not in bad_idx]
-    encodings = encoder.encode(data)
+    filtered_data = [caption for i, caption in enumerate(data) if i not in bad_idx]
+    encodings = encoder.encode(filtered_data)
     encodings = np.array(encodings)
     np.save('train_embeddings.npy', encodings)
 
@@ -80,5 +85,5 @@ def encode_tags(bad_idx):
 
 if __name__ == '__main__':
     bad_idx = clean_tags()
-    #process_images(bad_idx)
+    process_images(bad_idx)
     encode_tags(bad_idx)
