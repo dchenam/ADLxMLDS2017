@@ -13,13 +13,15 @@ VOCAB_FILE = "skip_thoughts_uni/vocab.txt"
 EMBEDDING_MATRIX_FILE = "skip_thoughts_uni/embeddings.npy"
 CHECKPOINT_PATH = "skip_thoughts_uni/model.ckpt-501424"
 
-def process_images():
+def process_images(bad_idx):
     img_data = []
     for i in range(33431):
         img = skimage.io.imread(os.path.join('data/faces', str(i) + '.jpg'))
         img = skimage.transform.resize(img, (64, 64))
         img_data.append(img)
+    img_data = [img for i, img in enumerate(img_data) if i not in bad_idx]
     img_data = np.array(img_data)
+    img_data = img_data * 2 - 1
     np.save('train_images.npy', img_data)
 
 def clean_tags():
@@ -29,17 +31,18 @@ def clean_tags():
     clean = clean.where(mask)
     clean.to_csv('tags_clean.txt', header=None, sep='\t')
     x = fileinput.input('tags_clean.txt', inplace=1)
+    bad_idx = []
     for line in x:
-        line = re.sub('\d', ' ', line)
         line = re.sub('\t', ' ', line)
         line = re.sub("long hair", ' ', line)
         line = re.sub("short hair", ' ', line)
-        if not ('hair' in line): line = 'unknown hair ' + line
-        if not ('eyes' in line): line += ' unknown eyes'
+        if not ('hair' in line) and not ('eyes' in line): bad_idx.append(int(re.findall(r'\d', line)[0]))
+        line = re.sub('\d', ' ', line)
         line = re.sub('\s{2,}', ' ', line.strip())
         print(line)
     x.close()
-def encode_tags():
+    return bad_idx
+def encode_tags(bad_idx):
     encoder = encoder_manager.EncoderManager()
     encoder.load_model(configuration.model_config(),
                        vocabulary_file=VOCAB_FILE,
@@ -48,6 +51,7 @@ def encode_tags():
     data = []
     with open('tags_clean.txt', 'r') as f:
         data.extend(line.strip() for line in f)
+    data = [caption for i, caption in enumerate(data) if i not in bad_idx]
     encodings = encoder.encode(data)
     encodings = np.array(encodings)
     np.save('train_embeddings.npy', encodings)
@@ -75,6 +79,6 @@ def encode_tags():
     test_embeddings = pickle.dump(testing_dict, open('test_embeddings.pkl', 'wb'))
 
 if __name__ == '__main__':
-    process_images()
-    clean_tags()
-    encode_tags()
+    bad_idx = clean_tags()
+    #process_images(bad_idx)
+    encode_tags(bad_idx)
