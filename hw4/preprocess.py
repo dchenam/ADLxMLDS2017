@@ -13,7 +13,26 @@ VOCAB_FILE = "skip_thoughts_uni/vocab.txt"
 EMBEDDING_MATRIX_FILE = "skip_thoughts_uni/embeddings.npy"
 CHECKPOINT_PATH = "skip_thoughts_uni/model.ckpt-501424"
 
-def process_images(bad_idx):
+bad_idx = []
+def clean_tags():
+    print('cleaning tags...')
+    tags = pd.read_csv('data/tags_clean.csv', header=None, sep='\t', names=list(range(50)))
+    clean = tags.applymap(lambda x:re.sub('[\d,:""]','', str(x)))
+    mask = clean.applymap(lambda x:("eyes" in str(x)) or ("hair" in str(x)))
+    clean = clean.where(mask)
+    clean.to_csv('tags_clean.txt', header=None, sep='\t')
+    x = fileinput.input('tags_clean.txt', inplace=1)
+    for line in x:
+        line = re.sub('\t', ' ', line)
+        line = re.sub("long hair", ' ', line)
+        line = re.sub("short hair", ' ', line)
+        if not ('hair' in line) and not ('eyes' in line): bad_idx.append(int(re.findall(r'\d+', line)[0]))
+        line = re.sub('\d', ' ', line)
+        line = re.sub('\s{2,}', ' ', line.strip())
+        print(line)
+    x.close()
+
+def process_images():
     print('processing images...')
     print(len(bad_idx))
     img_data = []
@@ -26,26 +45,7 @@ def process_images(bad_idx):
     img_data = img_data * 2 - 1
     np.save('train_images.npy', img_data)
 
-def clean_tags():
-    print('cleaning tags...')
-    tags = pd.read_csv('data/tags_clean.csv', header=None, sep='\t', names=list(range(50)))
-    clean = tags.applymap(lambda x:re.sub('[\d,:""]','', str(x)))
-    mask = clean.applymap(lambda x:("eyes" in str(x)) or ("hair" in str(x)))
-    clean = clean.where(mask)
-    clean.to_csv('tags_clean.txt', header=None, sep='\t')
-    x = fileinput.input('tags_clean.txt', inplace=1)
-    bad_idx = []
-    for line in x:
-        line = re.sub('\t', ' ', line)
-        line = re.sub("long hair", ' ', line)
-        line = re.sub("short hair", ' ', line)
-        if not ('hair' in line) and not ('eyes' in line): bad_idx.append(int(re.findall(r'\d', line)[0]))
-        line = re.sub('\d', ' ', line)
-        line = re.sub('\s{2,}', ' ', line.strip())
-        print(line)
-    x.close()
-    return bad_idx
-def encode_tags(bad_idx):
+def encode_tags():
     print('encoding captions..')
     print(len(bad_idx))
     encoder = encoder_manager.EncoderManager()
@@ -84,6 +84,6 @@ def encode_tags(bad_idx):
     test_embeddings = pickle.dump(testing_dict, open('test_embeddings.pkl', 'wb'))
 
 if __name__ == '__main__':
-    bad_idx = clean_tags()
-    process_images(bad_idx)
-    encode_tags(bad_idx)
+    clean_tags()
+    encode_tags()
+    process_images()
