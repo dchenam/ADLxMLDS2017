@@ -52,19 +52,20 @@ class GAN:
         self.disc_loss = disc_loss1 + (disc_loss2 + disc_loss3) * 0.5
 
         # Training Op
-        optimizer_gen = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.momentum)
-        optimizer_disc = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.momentum)
-        gen_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Generator')
-        disc_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Discriminator')
-        disc_grads_vars = optimizer_disc.compute_gradients(self.disc_loss, var_list=disc_vars)
-        disc_grads, _ = list(zip(*disc_grads_vars))
-        disc_norms = tf.global_norm(disc_grads)
-        self.train_disc = optimizer_disc.apply_gradients(disc_grads_vars, name='disc-training-op')
+        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+            optimizer_gen = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.momentum)
+            optimizer_disc = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.momentum)
+            gen_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Generator')
+            disc_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Discriminator')
+            disc_grads_vars = optimizer_disc.compute_gradients(self.disc_loss, var_list=disc_vars)
+            disc_grads, _ = list(zip(*disc_grads_vars))
+            disc_norms = tf.global_norm(disc_grads)
+            self.train_disc = optimizer_disc.apply_gradients(disc_grads_vars, name='disc-training-op')
 
-        gen_grads_vars = optimizer_gen.compute_gradients(self.gen_loss, var_list=gen_vars)
-        gen_grads, _ = list(zip(*gen_grads_vars))
-        gen_norms = tf.global_norm(gen_grads)
-        self.train_gen = optimizer_gen.apply_gradients(gen_grads_vars, name='gen-training-op')
+            gen_grads_vars = optimizer_gen.compute_gradients(self.gen_loss, var_list=gen_vars)
+            gen_grads, _ = list(zip(*gen_grads_vars))
+            gen_norms = tf.global_norm(gen_grads)
+            self.train_gen = optimizer_gen.apply_gradients(gen_grads_vars, name='gen-training-op')
 
         # Summary Writers and Savers
         self.saver = tf.train.Saver()
@@ -119,7 +120,7 @@ class GAN:
         def conv2d(x, filter, kernel=(5, 5), strides=(2, 2)):
             x = layers.conv2d(x, filter, kernel, strides, padding='same',
                               kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
-            # x = layers.batch_normalization(x, training=training)
+            x = layers.batch_normalization(x, training=training)
             x = leaky_relu(x)
             return x
 
@@ -205,9 +206,9 @@ def parse():
     parser.add_argument('--learning_rate', default=0.0002, help='learning rate')
     parser.add_argument('--momentum', default=0.5, help='momentum')
     parser.add_argument('--batch_size', default=64, help='batch size')
-    parser.add_argument('--epoch', default=300, help='number of epochs')
+    parser.add_argument('--epoch', default=200, help='number of epochs')
     parser.add_argument('--noise_dim', default=100, help='gaussian or uniform noise dim')
-    parser.add_argument('--encode_dim', default=256, help='text embedding reduction dim')
+    parser.add_argument('--encode_dim', default=128, help='text embedding reduction dim')
     parser.add_argument('--gen_dim', default=128, help='num of conv in the first layer of generator')
     parser.add_argument('--disc_dim', default=64, help='num of conv in the first layer of discriminator')
     parser.add_argument('--load', action='store_true', help='loads latest checkpoint')
@@ -249,11 +250,15 @@ if __name__ == '__main__':
             if step % 100 == 0:
                 image = model.generate(test_embeddings['blue hair blue eyes'])
                 image2 = model.generate(test_embeddings['blue hair blue eyes'])
+                image3 = model.generate(test_embeddings['blue hair blue eyes'])
+                image4 = model.generate(test_embeddings['blue hair blue eyes'])
                 sample_dir = os.path.join(model.experiment_dir, 'samples')
                 if not os.path.exists(sample_dir):
                     os.makedirs(sample_dir)
                 skimage.io.imsave(os.path.join(sample_dir, str(step) + '.jpg'), image)
                 skimage.io.imsave(os.path.join(sample_dir, str(step) + '_2' + '.jpg'), image2)
+                skimage.io.imsave(os.path.join(sample_dir, str(step) + '_3' + '.jpg'), image3)
+                skimage.io.imsave(os.path.join(sample_dir, str(step) + '_4' + '.jpg'), image4)
             num_batch += 1
         model.save(i)
     print('Training Finished...')
