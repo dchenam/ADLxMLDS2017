@@ -33,11 +33,11 @@ class GAN:
         # Build Network and Inputs
         self.noise_input = tf.placeholder(tf.float32, shape=[None, self.noise_dim], name='noise_input')
         self.real_image_input = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name='real_image_input')
-        self.wrong_image_input = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name='wrong_image_input')
+        self.wrong_caption_input = tf.placeholder(tf.float32, shape=[None, self.embed_dim], name='wrong_caption_input')
         self.real_caption_input = tf.placeholder(tf.float32, shape=[None, self.embed_dim], name='real_caption_input')
         self.fake_image = self.generator(self.real_caption_input, self.noise_input, training=self.learning_phase)
         disc_real_logits = self.discriminator(self.real_image_input, self.real_caption_input, training=self.learning_phase)
-        disc_wrong_logits = self.discriminator(self.wrong_image_input, self.real_caption_input, reuse=True, training=self.learning_phase)
+        disc_wrong_logits = self.discriminator(self.real_image_input, self.wrong_caption_input, reuse=True, training=self.learning_phase)
         disc_fake_logits = self.discriminator(self.fake_image, self.real_caption_input, reuse=True, training=self.learning_phase)
 
         # Network Targets
@@ -52,20 +52,19 @@ class GAN:
         self.disc_loss = disc_loss1 + (disc_loss2 + disc_loss3) * 0.5
 
         # Training Op
-        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-            optimizer_gen = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.momentum)
-            optimizer_disc = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.momentum)
-            gen_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Generator')
-            disc_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Discriminator')
-            disc_grads_vars = optimizer_disc.compute_gradients(self.disc_loss, var_list=disc_vars)
-            disc_grads, _ = list(zip(*disc_grads_vars))
-            disc_norms = tf.global_norm(disc_grads)
-            self.train_disc = optimizer_disc.apply_gradients(disc_grads_vars, name='disc-training-op')
+        optimizer_gen = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.momentum)
+        optimizer_disc = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.momentum)
+        gen_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Generator')
+        disc_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='Discriminator')
+        disc_grads_vars = optimizer_disc.compute_gradients(self.disc_loss, var_list=disc_vars)
+        disc_grads, _ = list(zip(*disc_grads_vars))
+        disc_norms = tf.global_norm(disc_grads)
+        self.train_disc = optimizer_disc.apply_gradients(disc_grads_vars, name='disc-training-op')
 
-            gen_grads_vars = optimizer_gen.compute_gradients(self.gen_loss, var_list=gen_vars)
-            gen_grads, _ = list(zip(*gen_grads_vars))
-            gen_norms = tf.global_norm(gen_grads)
-            self.train_gen = optimizer_gen.apply_gradients(gen_grads_vars, name='gen-training-op')
+        gen_grads_vars = optimizer_gen.compute_gradients(self.gen_loss, var_list=gen_vars)
+        gen_grads, _ = list(zip(*gen_grads_vars))
+        gen_norms = tf.global_norm(gen_grads)
+        self.train_gen = optimizer_gen.apply_gradients(gen_grads_vars, name='gen-training-op')
 
         # Summary Writers and Savers
         self.saver = tf.train.Saver()
@@ -131,23 +130,11 @@ class GAN:
             encode_vec = tf.expand_dims(tf.expand_dims(encode_vec, 1), 1)
             encode_vec = tf.tile(encode_vec, [1, 4, 4, 1])
 
-            x = layers.conv2d(img_input, self.disc_dim, [5,5], [2,2], padding='same',
-                              kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
-            x = leaky_relu(layers.batch_normalization(x, training=training))
-            x = layers.conv2d(x, self.disc_dim * 2, [5,5], [2,2], padding='same',
-                              kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
-            x = leaky_relu(layers.batch_normalization(x, training=training))
-            x = layers.conv2d(x, self.disc_dim * 4, [5,5], [2,2], padding='same',
-                              kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
-            x = leaky_relu(layers.batch_normalization(x, training=training))
-            x = layers.conv2d(x, self.disc_dim * 8, [5,5], [2,2], padding='same',
-                              kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
-            net = leaky_relu(layers.batch_normalization(x, training=training))
-            # net = conv2d(img_input, self.disc_dim)
-            # net = conv2d(net, self.disc_dim * 2)
-            # net = conv2d(net, self.disc_dim * 4)
-            # net = conv2d(net, self.disc_dim * 8)
-            # net = K.concatenate([net, K.reshape(K.repeat(encode_vec, n=16), shape=(-1, 4, 4, self.encode_dim))])
+            net = conv2d(img_input, self.disc_dim)
+            net = conv2d(net, self.disc_dim * 2)
+            net = conv2d(net, self.disc_dim * 4)
+            net = conv2d(net, self.disc_dim * 8)
+
             net = tf.concat([net, encode_vec], axis=-1)
             net = layers.conv2d(net, 1, kernel_size=[4, 4], strides=[1, 1],
                                 kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
@@ -178,11 +165,11 @@ class GAN:
         self.summary_writer.add_summary(summaries, step)
         return gen_loss
 
-    def update_discriminator(self, batch_real_img, batch_real_cap, batch_wrong_img, batch_noise, step):
+    def update_discriminator(self, batch_real_img, batch_real_cap, batch_wrong_cap, batch_noise, step):
         feed_dict={
             self.noise_input: batch_noise,
             self.real_image_input: batch_real_img,
-            self.wrong_image_input: batch_wrong_img,
+            self.wrong_caption_input: batch_wrong_cap,
             self.real_caption_input: batch_real_cap,
             self.learning_phase:True,
             self.zeros: np.zeros([self.batch_size, 1, 1, 1]).astype(np.float32),
@@ -218,7 +205,7 @@ def parse():
     parser.add_argument('--learning_rate', default=0.0002, help='learning rate')
     parser.add_argument('--momentum', default=0.5, help='momentum')
     parser.add_argument('--batch_size', default=64, help='batch size')
-    parser.add_argument('--epoch', default=200, help='number of epochs')
+    parser.add_argument('--epoch', default=100, help='number of epochs')
     parser.add_argument('--noise_dim', default=100, help='gaussian or uniform noise dim')
     parser.add_argument('--encode_dim', default=128, help='text embedding reduction dim')
     parser.add_argument('--gen_dim', default=128, help='num of conv in the first layer of generator')
@@ -246,28 +233,28 @@ if __name__ == '__main__':
         gen_loss = 0
         disc_loss = 0
         np.random.shuffle(shuffle_idx)
-        random_idx = np.random.randint(image_data.shape[0], size=batch_size)
+        random_idx = np.random.randint(len(test_embeddings), size=batch_size)
         num_batch = 0
         for index in shuffle_idx:
             batch_real_img = image_data[index * batch_size : (index + 1) * batch_size]
             batch_real_cap = caption_data[index * batch_size : (index + 1) * batch_size]
-            batch_wrong_img = image_data[random_idx]
+            batch_wrong_cap = np.array(list(test_embeddings.values()))[random_idx]
             batch_noise = np.random.normal(0., 1., [batch_size, args.noise_dim])
             step = i * batch_indices + num_batch
-            disc_loss = model.update_discriminator(batch_real_img, batch_real_cap, batch_wrong_img, batch_noise, step)
+            disc_loss = model.update_discriminator(batch_real_img, batch_real_cap, batch_wrong_cap, batch_noise, step)
             gen_loss = model.update_generator(batch_real_cap, batch_noise, step)
             model.summary_writer.flush()
             print('Epoch %i: Batch: %i(%i): Generator Loss: %f, Discriminator Loss: %f' % (
                 i, num_batch, len(shuffle_idx), gen_loss, disc_loss))
             if step % 100 == 0:
-                image = model.generate(test_embeddings['blue hair blue eyes'])
-                image2 = model.generate(test_embeddings['blue hair blue eyes'])
-                image3 = model.generate(test_embeddings['blue hair blue eyes'])
-                image4 = model.generate(test_embeddings['blue hair blue eyes'])
+                image = model.generate(test_embeddings['blue hair red eyes'])
+                image2 = model.generate(test_embeddings['blue hair red eyes'])
+                image3 = model.generate(test_embeddings['blue hair red eyes'])
+                image4 = model.generate(test_embeddings['blue hair red eyes'])
                 sample_dir = os.path.join(model.experiment_dir, 'samples')
                 if not os.path.exists(sample_dir):
                     os.makedirs(sample_dir)
-                skimage.io.imsave(os.path.join(sample_dir, str(step) + '.jpg'), image)
+                skimage.io.imsave(os.path.join(sample_dir, str(step) + '_' + str(i) + '.jpg'), image)
                 skimage.io.imsave(os.path.join(sample_dir, str(step) + '_2' + '.jpg'), image2)
                 skimage.io.imsave(os.path.join(sample_dir, str(step) + '_3' + '.jpg'), image3)
                 skimage.io.imsave(os.path.join(sample_dir, str(step) + '_4' + '.jpg'), image4)
