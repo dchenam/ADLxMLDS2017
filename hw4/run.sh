@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 testing_text="$1"
-wget 'https://www.dropbox.com/s/gyoubzz9zi2s2vn/Vanilla_DQN.zip?dl=1' -O Vanilla_DQN.zip
-unzip REINFORCE.zip
-rm REINFORCE.zip
-
-python3 generate.py $testing_text
+wget 'https://www.dropbox.com/s/jqqok11p8c4vzqx/checkpoints.zip?dl=1' -O checkpoints.zip
+unzip checkpoints.zip -d experiments/GAN-CLS/
+rm checkpoints.zip
+python3 generate.py --testing $testing_text
 
 
