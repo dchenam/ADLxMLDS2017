@@ -117,8 +117,8 @@ class GAN:
 
     def discriminator(self, img_input, embed_input, training=True, reuse=False):
 
-        def conv2d(x, filter, kernel=(5, 5), strides=(2, 2)):
-            x = layers.conv2d(x, self.disc_dim, [5,5], [2,2], padding='same',
+        def conv2d(x, filters, kernel=(5, 5), strides=(2, 2)):
+            x = layers.conv2d(x, filters, kernel, strides, padding='same',
                               kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
             #  x = layers.batch_normalization(x, training=training)
             x = leaky_relu(x)
@@ -234,11 +234,11 @@ if __name__ == '__main__':
         gen_loss = 0
         disc_loss = 0
         np.random.shuffle(shuffle_idx)
-        random_idx = np.random.randint(image_data.shape[0], size=batch_size)
         num_batch = 0
         for index in shuffle_idx:
             batch_real_img = image_data[index * batch_size : (index + 1) * batch_size]
             batch_real_cap = caption_data[index * batch_size : (index + 1) * batch_size]
+            random_idx = np.random.randint(image_data.shape[0], size=batch_size)
             batch_wrong_img = image_data[random_idx]
             batch_noise = np.random.normal(0., 1., [batch_size, args.noise_dim])
             step = i * batch_indices + num_batch

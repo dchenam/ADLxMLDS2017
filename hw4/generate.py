@@ -1,9 +1,14 @@
 from train import GAN, parse
 import tensorflow as tf
 import pickle
+import numpy as np
 import skimage.io
 import os
 import re
+
+np.random.seed(10)
+tf.set_random_seed(10)
+
 if __name__ == '__main__':
     args = parse()
     sess = tf.InteractiveSession()
@@ -24,4 +29,4 @@ if __name__ == '__main__':
                 image = model.generate(test_embeddings[captions[i]])
             except:
                 print('test id %i not found in pretrained embeddings' % (test_id[i]))
-            skimage.io.imsave(os.path.join('./samples', 'sample_' + test_id[i] + '_' + str(j) + '.jpg'), image)
+            skimage.io.imsave(os.path.join('./samples', 'sample_' + test_id[i] + '_' + str(j + 1) + '.jpg'), image)
