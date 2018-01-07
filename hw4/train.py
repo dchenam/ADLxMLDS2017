@@ -120,7 +120,7 @@ class GAN:
         def conv2d(x, filter, kernel=(5, 5), strides=(2, 2)):
             x = layers.conv2d(x, filter, kernel, strides, padding='same',
                               kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
-            x = layers.batch_normalization(x, training=training)
+            # x = layers.batch_normalization(x, training=training)
             x = leaky_relu(x)
             return x
 
