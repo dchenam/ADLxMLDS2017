@@ -118,7 +118,7 @@ class GAN:
     def discriminator(self, img_input, embed_input, training=True, reuse=False):
 
         def conv2d(x, filter, kernel=(5, 5), strides=(2, 2)):
-            x = layers.conv2d(x, filter, kernel, strides, padding='same',
+            x = layers.conv2d(x, self.disc_dim, [5,5], [2,2], padding='same',
                               kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
             # x = layers.batch_normalization(x, training=training)
             x = leaky_relu(x)
@@ -131,10 +131,22 @@ class GAN:
             encode_vec = tf.expand_dims(tf.expand_dims(encode_vec, 1), 1)
             encode_vec = tf.tile(encode_vec, [1, 4, 4, 1])
 
-            net = conv2d(img_input, self.disc_dim)
-            net = conv2d(net, self.disc_dim * 2)
-            net = conv2d(net, self.disc_dim * 4)
-            net = conv2d(net, self.disc_dim * 8)
+            x = layers.conv2d(img_input, self.disc_dim, [5,5], [2,2], padding='same',
+                              kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
+            x = leaky_relu(layers.batch_normalization(x, training=training))
+            x = layers.conv2d(x, self.disc_dim * 2, [5,5], [2,2], padding='same',
+                              kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
+            x = leaky_relu(layers.batch_normalization(x, training=training))
+            x = layers.conv2d(x, self.disc_dim * 4, [5,5], [2,2], padding='same',
+                              kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
+            x = leaky_relu(layers.batch_normalization(x, training=training))
+            x = layers.conv2d(x, self.disc_dim * 8, [5,5], [2,2], padding='same',
+                              kernel_initializer=tf.truncated_normal_initializer(mean=0, stddev=0.02))
+            net = leaky_relu(layers.batch_normalization(x, training=training))
+            # net = conv2d(img_input, self.disc_dim)
+            # net = conv2d(net, self.disc_dim * 2)
+            # net = conv2d(net, self.disc_dim * 4)
+            # net = conv2d(net, self.disc_dim * 8)
             # net = K.concatenate([net, K.reshape(K.repeat(encode_vec, n=16), shape=(-1, 4, 4, self.encode_dim))])
             net = tf.concat([net, encode_vec], axis=-1)
             net = layers.conv2d(net, 1, kernel_size=[4, 4], strides=[1, 1],
